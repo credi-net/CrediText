@@ -4,7 +4,7 @@ import gzip
 from pathlib import Path
 from typing import Optional
 
-from tgrag.utils.io import run, run_ext_sort
+from creditext.utils.io import run, run_ext_sort
 
 
 def compute_density(V: int, E: int) -> float:

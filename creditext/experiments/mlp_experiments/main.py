@@ -8,10 +8,15 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
-from tgrag.utils.logger import setup_logging
-from tgrag.utils.path import get_root_dir
-from tgrag.utils.plot import plot_histogram, plot_loss, plot_regression_scatter
 from tqdm import tqdm
+
+from creditext.utils.logger import setup_logging
+from creditext.utils.path import get_root_dir
+from creditext.utils.plot import (
+    plot_histogram,
+    plot_loss,
+    plot_regression_scatter,
+)
 
 parser = argparse.ArgumentParser(description='MLP Experiments')
 parser.add_argument(

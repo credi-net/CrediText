@@ -6,14 +6,15 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
-from tgrag.encoders.encoder import Encoder
-from tgrag.utils.readers import (
+from torch_geometric.data import Data, InMemoryDataset
+
+from creditext.encoders.encoder import Encoder
+from creditext.utils.readers import (
     get_full_dict,
     load_large_edge_csv,
     load_node_csv,
 )
-from tgrag.utils.target_generation import generate_exact_targets_csv
-from torch_geometric.data import Data, InMemoryDataset
+from creditext.utils.target_generation import generate_exact_targets_csv
 
 
 class TemporalDataset(InMemoryDataset):

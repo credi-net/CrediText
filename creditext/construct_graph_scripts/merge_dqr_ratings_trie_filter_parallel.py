@@ -16,12 +16,13 @@ from typing import (
     cast,
 )
 
-from tgrag.utils.domain_handler import reverse_domain
-from tgrag.utils.prob import (
+from tqdm import tqdm
+
+from creditext.utils.domain_handler import reverse_domain
+from creditext.utils.prob import (
     get_importance_node,
     get_importance_probability_node,
 )
-from tqdm import tqdm
 
 # ------------------------- Types -------------------------
 

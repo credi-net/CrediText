@@ -1,6 +1,6 @@
 import argparse
 
-from tgrag.construct_graph_scripts.process import process_graph
+from creditext.construct_graph_scripts.process import process_graph
 
 parser = argparse.ArgumentParser(
     description='Process graph and get graph stats.',

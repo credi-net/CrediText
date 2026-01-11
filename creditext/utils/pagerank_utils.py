@@ -3,7 +3,8 @@ from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from tgrag.utils.path import get_root_dir
+
+from creditext.utils.path import get_root_dir
 
 
 def test_score_sum(new_nodes: pd.DataFrame, tol: float = 1e-3) -> bool:

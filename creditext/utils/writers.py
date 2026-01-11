@@ -8,13 +8,13 @@ import tempfile
 from pathlib import Path
 from typing import Tuple
 
-from tgrag.utils.analytics import (
+from creditext.utils.analytics import (
     compute_density,
     count_lines,
     count_sorted_keys,
 )
-from tgrag.utils.io import run_ext_sort
-from tgrag.utils.readers import line_reader
+from creditext.utils.io import run_ext_sort
+from creditext.utils.readers import line_reader
 
 
 # For graphs

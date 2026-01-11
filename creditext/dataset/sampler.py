@@ -1,7 +1,6 @@
 from typing import Dict, List, Tuple, Union
 
 import torch
-from tgrag.dataset.torch_geometric_graph_store import SQLiteGraphStore
 from torch_geometric.sampler import (
     BaseSampler,
     HeteroSamplerOutput,
@@ -9,6 +8,8 @@ from torch_geometric.sampler import (
     SamplerOutput,
 )
 from torch_geometric.sampler.base import EdgeSamplerInput
+
+from creditext.dataset.torch_geometric_graph_store import SQLiteGraphStore
 
 
 class SQLiteNeighborSampler(BaseSampler):

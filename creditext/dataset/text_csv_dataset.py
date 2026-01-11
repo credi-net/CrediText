@@ -2,10 +2,11 @@ from typing import Tuple
 
 import pandas as pd
 import torch
-from tgrag.encoders.encoder import Encoder
 from torch import Tensor
 from torch.utils.data import Dataset
 from tqdm import tqdm
+
+from creditext.encoders.encoder import Encoder
 
 
 class TextCSVDataset(Dataset):

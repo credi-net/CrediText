@@ -10,9 +10,10 @@ from typing import Callable, Dict, Iterable, Iterator, List, Set, TextIO, Tuple
 
 import pandas as pd
 import torch
-from tgrag.utils.domain_handler import normalize_domain
-from tgrag.utils.path import get_root_dir
 from tqdm import tqdm
+
+from creditext.utils.domain_handler import normalize_domain
+from creditext.utils.path import get_root_dir
 
 # For graphs
 # ----------

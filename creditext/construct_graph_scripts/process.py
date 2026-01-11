@@ -8,11 +8,11 @@ import gzip
 import tempfile
 from pathlib import Path
 
-from tgrag.utils.analytics import stats
-from tgrag.utils.io import run_ext_sort
-from tgrag.utils.readers import line_reader
-from tgrag.utils.temporal_utils import iso_week_to_timestamp
-from tgrag.utils.writers import build_from_BCC, compute_degrees
+from creditext.utils.analytics import stats
+from creditext.utils.io import run_ext_sort
+from creditext.utils.readers import line_reader
+from creditext.utils.temporal_utils import iso_week_to_timestamp
+from creditext.utils.writers import build_from_BCC, compute_degrees
 
 
 def filter_domains_by_degree(

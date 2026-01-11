@@ -4,9 +4,14 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import tldextract
-from tgrag.utils.domain_handler import flip_if_needed, lookup, reverse_domain
-from tgrag.utils.readers import get_full_dict, load_target_nids
 from tqdm import tqdm
+
+from creditext.utils.domain_handler import (
+    flip_if_needed,
+    lookup,
+    reverse_domain,
+)
+from creditext.utils.readers import get_full_dict, load_target_nids
 
 _extract = tldextract.TLDExtract(include_psl_private_domains=True)
 MAX_DOMAINS_TO_SHOW = 50

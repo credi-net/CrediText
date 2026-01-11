@@ -9,8 +9,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Set, Tuple
 
-from tgrag.utils.checkers import check_processed_labels
-from tgrag.utils.readers import (
+from creditext.utils.checkers import check_processed_labels
+from creditext.utils.readers import (
     collect_merged,
     line_reader,
     read_edge_file,
@@ -18,7 +18,7 @@ from tgrag.utils.readers import (
     read_vertex_file,
     read_weak_labels,
 )
-from tgrag.utils.writers import write_aggr_labelled
+from creditext.utils.writers import write_aggr_labelled
 
 # For graphs
 # ----------

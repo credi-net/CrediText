@@ -4,8 +4,9 @@ import multiprocessing as mp
 import os
 from typing import Any, Dict, Generator, Iterable, List, Tuple, TypedDict, cast
 
-from tgrag.utils.domain_handler import reverse_domain
 from tqdm import tqdm
+
+from creditext.utils.domain_handler import reverse_domain
 
 
 class InputRow(TypedDict):

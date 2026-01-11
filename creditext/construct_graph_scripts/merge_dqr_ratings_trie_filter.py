@@ -6,9 +6,10 @@ import random
 import time
 from typing import Any, Dict, Generator, Iterable, List, Tuple, TypedDict, cast
 
-from tgrag.utils.domain_handler import reverse_domain
-from tgrag.utils.prob import get_importance, get_importance_probability
 from tqdm import tqdm
+
+from creditext.utils.domain_handler import reverse_domain
+from creditext.utils.prob import get_importance, get_importance_probability
 
 
 class InputRow(TypedDict):

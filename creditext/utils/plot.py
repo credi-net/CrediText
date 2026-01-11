@@ -11,8 +11,9 @@ import seaborn as sns
 import torch
 from pandas import DataFrame
 from scipy.ndimage import gaussian_filter
-from tgrag.utils.path import get_root_dir
 from torch import Tensor
+
+from creditext.utils.path import get_root_dir
 
 
 class Scoring(str, Enum):
