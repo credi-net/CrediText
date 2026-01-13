@@ -1,6 +1,13 @@
-# CrediGraph
+<div align="center">
 
-<img src="img/logo_silver.png" alt="CrediGraph Logo" style="width: 300px; height: auto;" />
+
+# CrediText
+
+<img src="img/creditext.png" alt="CrediText Logo" style="width: 100px; height: auto;" />
+
+Text extraction from Common Crawl raw files or web scraping, and production of text embeddings from this content to augment the graph data with text for GNNs.
+
+</div>
 
 
 ## Getting Started
