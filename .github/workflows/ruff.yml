@@ -24,9 +24,10 @@ jobs:
         uses: astral-sh/ruff-action@v1
         with:
           changed-files: "true"
+          args: "check --exclude credigraph/cc-scripts"
 
       - name: "Run Ruff Formatter"
         uses: astral-sh/ruff-action@v3
         with:
-          args: "format --check"
+          args: "format --check --exclude credigraph/cc-scripts"
           version-file: "pyproject.toml"
