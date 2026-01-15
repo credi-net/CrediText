@@ -90,7 +90,7 @@ class CCSparkJob(object):
         arg_parser.add_argument(
             '--output_format',
             default='parquet',
-            help='Output format: parquet (default),' ' orc, json, csv',
+            help='Output format: parquet (default), orc, json, csv',
         )
         arg_parser.add_argument(
             '--output_compression',
@@ -113,7 +113,7 @@ class CCSparkJob(object):
         arg_parser.add_argument(
             '--local_temp_dir',
             default=None,
-            help='Local temporary directory, used to' ' buffer content from S3',
+            help='Local temporary directory, used to buffer content from S3',
         )
 
         arg_parser.add_argument(
@@ -481,7 +481,7 @@ class CCIndexSparkJob(CCSparkJob):
         parser.add_argument(
             '--table',
             default='ccindex',
-            help='name of the table data is loaded into' ' (default: ccindex)',
+            help='name of the table data is loaded into (default: ccindex)',
         )
         parser.add_argument(
             '--query',

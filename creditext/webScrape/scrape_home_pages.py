@@ -109,7 +109,7 @@ if __name__ == '__main__':
             results, columns=['title', 'desc', 'OG-Title', 'text', 'url']
         )
         results_df.to_csv(
-            f"../../data/scrapedContent/{args.domains_path.split('/')[-1].split('.')[0]}_scraped_homepage_{b_idx}.csv",
+            f'../../data/scrapedContent/{args.domains_path.split("/")[-1].split(".")[0]}_scraped_homepage_{b_idx}.csv',
             index=None,
             encoding='utf-8',
             errors='ignore',
