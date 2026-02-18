@@ -10,18 +10,7 @@ def setup_logging(
     log_file_logging_level: int = logging.DEBUG,
     stream_logging_level: int = logging.INFO,
 ) -> None:
-    """Configure root logging for console and optional file output.
-
-    Parameters:
-        log_file_path : Optional[str]
-            Path to a log file. If None, no file logging is configured.
-        log_file_logging_level : int
-            Logging level for the file handler.
-        stream_logging_level : int
-            Logging level for the stream (console) handler.
-    """
     handlers: List[logging.Handler] = []
-
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(stream_logging_level)
     stream_handler.setFormatter(
@@ -40,7 +29,7 @@ def setup_logging(
         handlers.append(file_handler)
 
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=log_file_logging_level,
         format='[%(asctime)s] %(levelname)s [%(processName)s %(threadName)s %(name)s.%(funcName)s:%(lineno)d] %(message)s',
         handlers=handlers,
     )
@@ -52,34 +41,14 @@ def setup_logging(
 
 
 class Logger(object):
-    """Accumulate and summarize per-run training, validation, and test metrics."""
-
     def __init__(self, runs: int):
         self.results: List[Any] = [[] for _ in range(runs)]
 
     def add_result(self, run: int, result: Tuple[float, float, float, float]) -> None:
-        """Append a result tuple to a given run.
-
-        Parameters:
-            run : int
-                Run index.
-            result : Tuple[float, float, float, float]
-                Tuple of metrics for one step/epoch.
-        """
         assert len(result) == 4
         self.results[run].append(result)
 
     def get_statistics(self, run: int | None = None) -> str:
-        """Return formatted statistics for one run or all runs.
-
-        Parameters:
-            run : int | None
-                Run index to summarize, or None to summarize all runs.
-
-        Returns:
-            str
-                Multi-line formatted summary string.
-        """
         lines = []
         if run is not None:
             result = torch.tensor(self.results[run])
@@ -103,9 +72,6 @@ class Logger(object):
                 final_train = r[-1, 0].item()
                 final_valid = r[-1, 1].item()
                 final_test = r[-1, 2].item()
-                train_max = r[:, 0].max().item()
-                valid_max = r[:, 1].max().item()
-                test_max = r[:, 2].max().item()
                 best_results.append(
                     (
                         train,
@@ -117,9 +83,6 @@ class Logger(object):
                         final_train,
                         final_valid,
                         final_test,
-                        train_max,
-                        valid_max,
-                        test_max,
                     )
                 )
 
@@ -151,22 +114,9 @@ class Logger(object):
             r = best_result[:, 8]
             lines.append(f'Final Test Loss: {r.mean():.4f}')
 
-            r = best_result[:, 9]
-            lines.append(f'Maximum Train Loss: {r.mean():.4f} ± {r.std():.4f}')
-            r = best_result[:, 10]
-            lines.append(f'Maximum Valid Loss: {r.mean():.4f} ± {r.std():.4f}')
-            r = best_result[:, 11]
-            lines.append(f'Maximum Test Loss: {r.mean():.4f} ± {r.std():.4f}')
-
         return '\n'.join(lines)
 
     def get_avg_statistics(self) -> str:
-        """Return formatted statistics averaged across runs per epoch.
-
-        Returns:
-            str
-                Multi-line formatted summary string.
-        """
         lines = []
         results_tensor = torch.tensor(self.results)  # shape: (runs, epochs, 3)
         avg = results_tensor.mean(dim=0)  # shape: (epochs, 3)
@@ -218,87 +168,10 @@ class Logger(object):
             f'Test @ Best Validation: {test_at_val_best:.4f} ± {test_at_val_best_std:.4f}'
         )
 
-        lines.append('')
-        lines.append(
-            f'Maximum Test Loss: {test_mean_curve.max().item():.4f} +/- {test_std_curve[test_mean_curve.argmax()].item():.4f}'
-        )
-        lines.append(
-            f'Minimum Test Loss: {test_mean_curve.min().item():.4f} +/- {test_std_curve[test_mean_curve.argmin()].item():.4f}'
-        )
-
-        return '\n'.join(lines)
-
-    def per_run_within_error(
-        self, preds: List[List[float]], targets: List[List[float]], percent: float
-    ) -> str:
-        """Compute per-run counts of predictions within a relative error threshold.
-
-        For each run, counts how many predictions differ from targets by at most
-        percent percent (relative error), and reports counts and ratios.
-
-        Parameters:
-            preds : List[List[float]]
-                Predicted values per run.
-            targets : List[List[float]]
-                Target values per run.
-            percent : float
-                Relative error tolerance in percent.
-
-        Returns:
-            str
-                Multi-line formatted summary string.
-
-        Raises:
-            ValueError
-                If preds and targets have mismatched structure.
-        """
-        if len(preds) != len(targets):
-            raise ValueError(
-                'Predictions and targets must have the same number of runs.'
-            )
-
-        tolerance = percent / 100.0
-        results = []
-
-        for run_preds, run_targets in zip(preds, targets):
-            if len(run_preds) != len(run_targets):
-                raise ValueError('Mismatched lengths in inner lists')
-
-            count = 0
-            total = 0
-            for p, t in zip(run_preds, run_targets):
-                if t == 0:
-                    continue
-                rel_error = abs(p - t) / abs(t)
-                if rel_error <= tolerance:
-                    count += 1
-                total += 1
-
-            ratio = count / total if total > 0 else 0.0
-            results.append((count, ratio))
-
-        lines = []
-
-        i = 0
-        for count, ratio in results:
-            lines.append(f'Run: {i}')
-            lines.append(
-                f'Number of {percent}% error difference: {count}, ratio: {ratio}'
-            )
-            i += 1
-
         return '\n'.join(lines)
 
 
 def log_quartiles(degrees: List[int], label: str) -> None:
-    """Log quartile statistics and counts for a list of degree values.
-
-    Parameters:
-        degrees : List[int]
-            Degree values to analyze.
-        label : str
-            Label used in log output.
-    """
     if len(degrees) < 4:
         logging.info(f'Not enough data points to compute quartiles for {label}.')
         return

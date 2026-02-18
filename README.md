@@ -7,6 +7,7 @@
 
 Text extraction from Common Crawl raw files or web scraping, and production of text embeddings from this content to augment the graph data with text for GNNs.
 
+Our optimized pipeline for extracting representative textual content from each monthly graph snapshot is derived from web crawls, and generates embeddings for downstream tasks. It leverages the Common Crawl monthly snapshot index to avoid scanning and downloading all Wet files data. The pipeline processes the snapshot WET files to extract textual content and stores it in an indexed, columnar Parquet format, enabling fast and parallelized LLM embedding generation. For our MLP labelled datsets  domain's lacking textual content, we employ a multi-threaded online scraping pipeline in batches to extract text directly from the domain’s home page.
 </div>
 
 
@@ -28,7 +29,7 @@ pip install uv
 # Clone the repo
 
 # Enter the repo directory
-cd CrediGraph
+cd CrediText
 
 # Install core dependencies into an isolated environment
 uv sync
@@ -38,61 +39,36 @@ source .venv/bin/activate
 ```
 
 ## Usage
+- Month: e.g. `Dec2024.txt` is a `.txt` file contains the common crawl month code e.g. ccmain202451
+- start_idx: the start index inclusive to process out of 90K wet files
+- end_idx: the last index inclusive to process out of 90K wet files
+- seed_domains_list: the seed list of domains to extract thier content e.g. the dqr domains list at 'data/dqr/domain_pc1.csv'
+- spark_table_name: the spark table name and output folder naming pattern i.e, content_table
+- WetFilesOrder: **Optional** The order of which the common Crawl WET files are downloaded and processed starting from start_idx and ending with the end_idx
 
-### Building Temporal Graphs
-
-The graph construction can be parallelized. We use a configuration of 16 subfolders, distributed across 16 CPUs. 
-
-First, `cd construction`;
+### Build Monthly domains Index 
+Extract month doamins and thier corssponding WET Files for parallel and ordered content extraction
 ```sh
-bash pipeline.sh <start_month> <end_month> <number of subfolders>
-# e.g,
-bash pipeline.sh 'January 2020' 'February 2020' 16
+cd bash_scripts
+./end-to-end.sh  <Month> <start_idx> <end_idx> [cc-index-table] <seed_domains_list.csv>
+e.g. 
+./end-to-end.sh  CC-Crawls/Dec2024.txt 0 10  [cc-index-table] ../data/Dec2024/Dec2024_domains.csv
 ```
-
-To launch a cluster job using `run.sh` directly (uses cluster practices for the pipeline): 
-```bash
-sbatch run.sh <start_month> [<end_month>]
-```
-For optimal settings, please see `construction/README.md`.
-
-
-This will construct the graph in `$SCRATCH/crawl-data/CC-MAIN-YYYY-WW/output`.
-
-#### Processing
-
-For processing a graph, `cd construction` and:
-
-```sh
-bash process.sh "$START_MONTH" "$END_MONTH"
-```
-
-
-### Running domain's content extraction
-
-The `end-to-end.sh` script runs a batch of content extraction from start_idx to end_idx
+### Extract Montly domain's text content
 
 ```sh
 cd bash_scripts
-bash end-to-end.sh CC-Crawls/Dec2024.txt <start_idx> <end_idx> [wet] <seed_list> <spark_table_name>
+bash end-to-end.sh <Month> <start_idx> <end_idx> [wet] <seed_domains_list.csv> <temp_spark_table_name> <WetFilesOrder.txt>
+e.g. 
+bash end-to-end.sh  CC-Crawls/Feb2025.txt 0 10 [wet] ../data/Dec2024/Dec2024_domains.csv content_ext_table spark-warehouse/creditext_ccmain202451_wetFilesOrder.txt
 ```
-
-where
-
-- `Dec2024.txt` is a `.txt` file with the slice names, e.g one `CC-MAIN-YYYY-WW` per line.
-- start_idx: the start index inclusive to process out of 90K wet files
-- end_idx: the last index inclusive to process out of 90K wet files
-- seed_list: the seed list of domains to extract thier content i.e, the dqr domains list at 'data/dqr/domain_pc1.csv'
-- spark_table_name: the spark table name and output folder naming pattern i.e, content_table
-
 This will generate parquet files per batch under \`$SCRATCH/spark-warehouse/\<spark_table_name>_batch_ccmain202451_\<start_idx>\_\<end_idx>
 
-#### Merging the extracted Content
+### Merging the extracted Content
 
 Loop across the generated parquet files to collect text contents and merge them per domain\
 simply use:  `pandas.read_parquet(file_path, engine='pyarrow')`\
 Each parquet file contains columns:
-
 - Domain_Name: the domain name
 - WARC_Target_URI: the web page URI
 - WARC_Identified_Content_Language: list of CC-identified content languagues
@@ -101,51 +77,47 @@ Each parquet file contains columns:
 - Content_Length: the content length in bytes
 - wet_record_txt: the UTF-8 text content
 
+______________________________________________________________________
+
+### Generate Content Embedding 
+
+### - use huggingface ready content files
+
+``` python
+uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf_files_start_idx=0 --hf_files_end_idx=10 --parquet_batch_size=100000 --emb_batch_size=5000 --emb_dim=256 --parquet_start_batch_idx=0 --hf_repo_id=Hussein-Abdallah/CrediBench-WebContent-<Month>
+```
+### - use your extracted files
+``` python
+uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf_files_start_idx=0 --hf_files_end_idx=10 --parquet_batch_size=100000 --emb_batch_size=5000 --emb_dim=256 --parquet_start_batch_idx=0 --local_dir=<your_extracted_content_parquet_files_ path>
+```
+______________________________________________________________________
+
 ### Running MLP Experiments
+#### DQR regression experiments
 
 The required embedding files and dataset must be placed under the data directory. The expected file paths are as follows:
 
-- Domain text embeddings: data/dqr/labeled_11k_scraped_text_emb.pkl
-- Domain name embeddings: data/dqr/labeled_11k_domainname_emb.pkl
+- DQR domain text embeddings: data/dqr/dqr_text_<emb_model>_<emb_dim>.pkl e.g. dqr_dec_text_embeddinggemma-300m_256.pkl
 - DQR dataset (ratings): data/dqr/domain_ratings.csv
 
 ```sh
-uv run python tgrag/experiments/mlp_experiments/main.py --target pc1 --embed_type text
+uv run python creditext/experiments/mlp_experiments/mlp_train_regressor.py --dqr_target pc1 --embed_type text --emb_model embeddinggemma-300m
 ```
+**review the paramters options to reproduce all experiments**
 
-### Running GNN Baseline Experiment
+#### DomainRel Binary Classifcation experiments
 
-Given the size of our datasets we must leverage mini-batching in our GNN experiments. To do this we use PyG's `neighbor_loader`,
-which requires additional libraries having undocumented build-time dependencies. As such, users are required to install them in their
-own venv. seperate from `uv sync`.
+The required embedding files and dataset must be placed under the data directory. The expected file paths are as follows:
 
-pyg-lib:
-
-```
-uv pip install pyg-lib -f https://data.pyg.org/whl/torch-${TORCH}+${CUDA}.html
-```
-
-PyTorch Sparse:
-
-```
-uv pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.7.0+${CUDA}.html
-```
-
-For information on installations of these additional libraries see [pyg-lib](https://github.com/pyg-team/pyg-lib) and [PyTorch Sparse](https://github.com/rusty1s/pytorch_sparse).
-
-To run our baseline static experimentation:
+- DomainRel text embeddings: data/weaksupervision/weak_content_emb_<month>_<emb_model>_<emb_dim>.parquet e.g. weak_content_emb_dec2024_embeddinggemma-300m_256.parquet
+- DomainRel dataset (labels): data/weaksupervision/weaklabels.csv
 
 ```sh
-uv run tgrag/experiments/main.py
+uv run python creditext/experiments/mlp_experiments/mlp_train_classifier.py --domainRel_target weaklabel --embed_type text --emb_model embeddinggemma-300m
 ```
+**review the paramters options to reproduce all experiments**
 
-Alternatively, you can design your own configuration, updating the model parameters:
-
-```sh
-uv run tgrag/experiments/main.py --config configs/your_config.yaml
-```
-
-To learn more about making a contribution to CrediGraph see our [contribution guide](./.github/CONTRIBUTION.md)
+To learn more about making a contribution to CrediTest see our [contribution guide](./.github/CONTRIBUTION.md)
 
 ______________________________________________________________________
 

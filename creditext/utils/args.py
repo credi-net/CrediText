@@ -6,12 +6,10 @@ from typing import Dict, List, Optional, Tuple, Union
 import yaml
 from hf_argparser import HfArgumentParser
 
-from creditext.utils.path import get_root_dir, get_scratch
+from tgrag.utils.path import get_root_dir, get_scratch
 
 
 class Normalization(str, Enum):
-    """Enumeration of supported normalization layers for the model."""
-
     NONE = 'none'
     LAYER_NORM = 'LayerNorm'
     BATCH_NORM = 'BatchNorm'
@@ -19,8 +17,6 @@ class Normalization(str, Enum):
 
 @dataclass
 class MetaArguments:
-    """Configuration for data locations, file paths, and global experiment settings."""
-
     log_file_path: Optional[str] = field(
         metadata={'help': 'Path to the log file to use.'},
     )
@@ -36,15 +32,6 @@ class MetaArguments:
     )
     target_file: Union[str, List[str]] = field(
         metadata={'help': 'A csv or list of csv files containing the targets.'},
-    )
-    database_folder: Union[str, List[str]] = field(
-        metadata={'help': 'The folder containing the relational database.'},
-    )
-    processed_location: Union[str, List[str]] = field(
-        metadata={'help': 'The location to save the processed feature matrix.'},
-    )
-    weights_directory: Union[str, List[str]] = field(
-        metadata={'help': 'The location to save and load model weights.'},
     )
     target_col: str = field(
         default='cr_score',
@@ -90,9 +77,9 @@ class MetaArguments:
     )
 
     def __post_init__(self) -> None:
-        """Resolve all file and directory paths relative to the selected root directory."""
         # Select root directory
         root_dir = get_scratch() if self.is_scratch_location else get_root_dir()
+        print(f'root_dir: {root_dir}')
 
         def resolve_paths(files: Union[str, List[str]]) -> Union[str, List[str]]:
             def resolve(f: str) -> str:
@@ -106,8 +93,6 @@ class MetaArguments:
         self.node_file = resolve_paths(self.node_file)
         self.edge_file = resolve_paths(self.edge_file)
         self.target_file = resolve_paths(self.target_file)
-        self.database_folder = resolve_paths(self.database_folder)
-        self.processed_location = resolve_paths(self.processed_location)
 
         if self.log_file_path is not None:
             self.log_file_path = str(get_root_dir() / self.log_file_path)
@@ -115,8 +100,6 @@ class MetaArguments:
 
 @dataclass
 class DataArguments:
-    """Configuration of task-level data and problem settings."""
-
     task_name: str = field(
         metadata={'help': 'The name of the task to train on'},
     )
@@ -135,8 +118,6 @@ class DataArguments:
 
 @dataclass
 class ModelArguments:
-    """Configuration of model architecture and training hyperparameters."""
-
     model: str = field(
         default='GCN',
         metadata={'help': 'Model identifer for the GNN.'},
@@ -179,8 +160,6 @@ class ModelArguments:
 
 @dataclass
 class ExperimentArgument:
-    """Container for a single experiment's data and model configuration."""
-
     data_args: DataArguments = field(
         metadata={'help': 'Data arguments for GNN configuration.'}
     )
@@ -191,15 +170,11 @@ class ExperimentArgument:
 
 @dataclass
 class ExperimentArguments:
-    """Collection of named experiments and their configurations."""
-
     exp_args: Dict[str, ExperimentArgument] = field(
         metadata={'help': 'List of experiments.'}
     )
 
     def __post_init__(self) -> None:
-        """Convert experiment dictionaries into ExperimentArgument instances."""
-
         def _remap_experiment_args(
             experiments: Dict[str, ExperimentArgument],
         ) -> Dict[str, ExperimentArgument]:
@@ -219,16 +194,6 @@ class ExperimentArguments:
 def parse_args(
     config_yaml: Union[str, pathlib.Path],
 ) -> Tuple[MetaArguments, ExperimentArguments]:
-    """Parse a YAML configuration file into typed argument objects.
-
-    Parameters:
-        config_yaml : Union[str, pathlib.Path]
-            Path to the YAML configuration file.
-
-    Returns:
-        Tuple[MetaArguments, ExperimentArguments]
-            Parsed meta and experiment configuration objects.
-    """
     config_dict = yaml.safe_load(pathlib.Path(config_yaml).read_text())
     config_dict = config_dict['MetaArguments'] | config_dict['ExperimentArguments']
     parser = HfArgumentParser((MetaArguments, ExperimentArguments))

@@ -4,7 +4,10 @@ construction/CC-*
 #Pycharm
 .idea/
 
-
+######### data
+data_org/
+logs/
+plots/
 
 #Gitignore common:
 # Byte-compiled / optimized / DLL files
