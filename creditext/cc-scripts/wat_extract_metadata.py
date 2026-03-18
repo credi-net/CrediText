@@ -1,16 +1,16 @@
 import os
 import re
-import shutil
+from urllib.parse import urljoin, urlparse
 
-# os.environ["PYSPARK_SUBMIT_ARGS"] = "--driver-memory MEM 4g"
-from urllib.parse import urlparse
-
+import idna
 from json_importer import json
-from jsonpath_ng import parse as jsonpath_parse
-from pyspark.sql.types import StringType, StructField, StructType
+from pyspark.sql.types import StringType, StructField, StructType,ArrayType
 from sparkcc import CCSparkJob
-
-
+# os.environ["PYSPARK_SUBMIT_ARGS"] = "--driver-memory MEM 4g"
+from urllib.parse import urljoin, urlparse
+from jsonpath_ng import jsonpath, parse as jsonpath_parse
+import os
+import shutil
 class ExtractLinksJob(CCSparkJob):
     """Extract links from WAT files and redirects from WARC files
     and save them as pairs <from, to>.
@@ -19,37 +19,34 @@ class ExtractLinksJob(CCSparkJob):
     name = 'ExtractLinks'
 
     output_schema = StructType(
-        [
-            StructField('url', StringType(), True),
-            StructField('metadata', StringType(), True),
-        ]
+        [StructField('url', StringType(), True), StructField('metadata', StringType(), True)]
     )
     metadataPaths_dict = {
         ###################### Generic MetaData ##############
         # "Request_Metadata": "Envelope.WARC-Header-Metadata",
-        'MessageType': 'Envelope.WARC-Header-Metadata.WARC-Type',  # can be [reques, respons, metadata]
-        'URL': 'Envelope.WARC-Header-Metadata.WARC-Target-URI',
-        'Web_Domain_IP': 'Envelope.WARC-Header-Metadata.WARC-IP-Address',
-        'Content-Type': 'Envelope.Payload-Metadata.Actual-Content-Type',
-        'Request_Date': 'Envelope.WARC-Header-Metadata.WARC-Date',
+        "MessageType": "Envelope.WARC-Header-Metadata.WARC-Type",  # can be [reques, respons, metadata]
+        "URL": "Envelope.WARC-Header-Metadata.WARC-Target-URI",
+        "Web_Domain_IP": "Envelope.WARC-Header-Metadata.WARC-IP-Address",
+        "Content-Type": "Envelope.Payload-Metadata.Actual-Content-Type",
+        "Request_Date": "Envelope.WARC-Header-Metadata.WARC-Date",
         ################# if request ###################
-        'Request_Method': 'Envelope.Payload-Metadata.HTTP-Request-Metadata.Request-Message.Method',  # [ Get or Post ]
-        'Request_Path': 'Envelope.Payload-Metadata.HTTP-Request-Metadata.Request-Message.Path',
+        "Request_Method": "Envelope.Payload-Metadata.HTTP-Request-Metadata.Request-Message.Method",  # [ Get or Post ]
+        "Request_Path": "Envelope.Payload-Metadata.HTTP-Request-Metadata.Request-Message.Path",
         # [ link relative Path ]
-        'Request_Accept-Language': 'Envelope.Payload-Metadata.HTTP-Request-Metadata.Headers.Accept-Language',
-        'Request_Host': 'Envelope.Payload-Metadata.HTTP-Request-Metadata.Headers.Host',
+        "Request_Accept-Language": "Envelope.Payload-Metadata.HTTP-Request-Metadata.Headers.Accept-Language",
+        "Request_Host": "Envelope.Payload-Metadata.HTTP-Request-Metadata.Headers.Host",
         ################# if response ###################
         # "Response-Message": "Envelope.Payload-Metadata.HTTP-Response-Metadata.Response-Message",
         # "Response_Headers": "Envelope.Payload-Metadata.HTTP-Response-Metadata.Headers",
-        'Content-language': 'Envelope.Payload-Metadata.HTTP-Response-Metadata.Headers.content-language',
-        'last-modified': 'Envelope.Payload-Metadata.HTTP-Response-Metadata.Headers.last-modified',
-        'Page_Title': 'Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Title',
+        "Content-language": "Envelope.Payload-Metadata.HTTP-Response-Metadata.Headers.content-language",
+        "last-modified": "Envelope.Payload-Metadata.HTTP-Response-Metadata.Headers.last-modified",
+        "Page_Title": "Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Title",
         # "Page_Header_Links": "Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Link",
         # "Page_Body_Links": "Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Links",
         # "Page_Script_Files": "Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Scripts",
-        'Page_Short_Desc': 'Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Metas.description',
+        "Page_Short_Desc": "Envelope.Payload-Metadata.HTTP-Response-Metadata.HTML-Metadata.Head.Metas.description",
         ################# if metadata ###################
-        'cdl_languages': 'Envelope.Payload-Metadata.WARC-Metadata-Metadata.Metadata-Records.languages-cld2',
+        "cdl_languages": "Envelope.Payload-Metadata.WARC-Metadata-Metadata.Metadata-Records.languages-cld2"
         # Score per each language
     }
     warc_parse_http_header = False
@@ -111,15 +108,16 @@ class ExtractLinksJob(CCSparkJob):
         self.processing_robotstxt_warc = (
             ExtractLinksJob.robotstxt_warc_path_pattern.match(warc_uri)
         )
+        count=0
         for record in archive_iterator:
             # if count<100:
             #     print("Processed Records Count:", self.records_response)
-            for res in self.process_record(record):
-                yield res
-            self.records_processed.add(1)
-            # count+=1
-        # else:
-        #     break
+                for res in self.process_record(record):
+                    yield res
+                self.records_processed.add(1)
+                # count+=1
+            # else:
+            #     break
 
     @staticmethod
     def parse_metadata(MetadataPaths_dict, json_record):
@@ -130,10 +128,9 @@ class ExtractLinksJob(CCSparkJob):
             if match:
                 metadata_dict[k] = match[0].value
             else:
-                metadata_dict[k] = ''
-        metadata_dict['domain_name'] = urlparse(metadata_dict['URL']).netloc
+                metadata_dict[k] = ""
+        metadata_dict["domain_name"] = urlparse(metadata_dict["URL"]).netloc
         return [metadata_dict]
-
     def process_record(self, record):
         if self.is_wat_json_record(record):
             try:
@@ -150,14 +147,14 @@ class ExtractLinksJob(CCSparkJob):
             self.records_response.add(1)
             self.records_response_wat.add(1)
             url = warc_header['WARC-Target-URI']
-            for metadata_dict in self.parse_metadata(
-                self.metadataPaths_dict, wat_record
-            ):
-                meta_data = (str(url), str(list(metadata_dict.values())))
+            for metadata_dict in self.parse_metadata(self.metadataPaths_dict, wat_record):
+                meta_data= (str(url),  str(list(metadata_dict.values())))
                 # print("meta_data=",meta_data)
                 yield meta_data
         else:
             return []
+
+
 
     def init_accumulators(self, session):
         super(ExtractLinksJob, self).init_accumulators(session)
@@ -194,13 +191,10 @@ class ExtractLinksJob(CCSparkJob):
         )
         self.log_accumulator(session, self.link_count, 'non-unique link pairs = {}')
 
+
     def run_job(self, session):
         output = None
-        out_path = (
-            str(session.conf.get('spark.sql.warehouse.dir')).split(':')[-1]
-            + '/'
-            + self.args.output
-        )
+        out_path=str(session.conf.get("spark.sql.warehouse.dir")).split(":")[-1]+"/"+self.args.output
         if os.path.exists(out_path):
             shutil.rmtree(out_path)
         if self.args.input != '':
@@ -208,6 +202,7 @@ class ExtractLinksJob(CCSparkJob):
                 self.args.input, minPartitions=self.args.num_input_partitions
             )
             output = input_data.mapPartitionsWithIndex(self.process_warcs)
+
 
         if not self.args.intermediate_output:
             df = session.createDataFrame(output, schema=self.output_schema)
@@ -231,7 +226,7 @@ class ExtractLinksJob(CCSparkJob):
             self.args.num_output_partitions
         ).sortWithinPartitions('url').write.format(self.args.output_format).option(
             'compression', self.args.output_compression
-        ).mode('overwrite').saveAsTable(self.args.output)
+        ).mode("overwrite").saveAsTable(self.args.output)
 
         self.log_accumulators(session.sparkContext)
 
@@ -245,11 +240,8 @@ class ExtractHostLinksJob(ExtractLinksJob):
 
     name = 'ExtrHostLinks'
     output_schema = StructType(
-        [
-            StructField('url', StringType(), True),
-            StructField('metadata', StringType(), True),
-        ]
-    )
+            [StructField('url', StringType(), True), StructField('metadata', StringType(), True)]
+        )
     num_input_partitions = 128
     num_output_partitions = 32
 
@@ -276,6 +268,10 @@ class ExtractHostLinksJob(ExtractLinksJob):
     url_parse_host_pattern = re.compile(
         r'^https?://([a-z0-9_.-]{2,253})(?:[/?#]|\Z)', re.IGNORECASE | re.ASCII
     )
+
+
+
+
 
 
 if __name__ == '__main__':

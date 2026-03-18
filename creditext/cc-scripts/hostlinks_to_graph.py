@@ -3,6 +3,7 @@ import os
 
 import idna
 from iana_tld import iana_tld_list
+from pyspark.sql import SparkSession
 from pyspark.sql import functions as sqlf
 from pyspark.sql.types import (
     BooleanType,
@@ -157,8 +158,8 @@ class HostLinksToGraph(CCSparkJob):
 
     def run_job(self, session):
         # read edges  s -> t  (host names)
-        session.sql('DROP TABLE IF EXISTS host_graph_output_vertices')
-        session.sql('DROP TABLE IF EXISTS host_graph_output_edges')
+        session.sql("DROP TABLE IF EXISTS host_graph_output_vertices")
+        session.sql("DROP TABLE IF EXISTS host_graph_output_edges")
         edges = session.read.load(self.args.input)
 
         if self.args.add_input:

@@ -4,14 +4,8 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import tldextract
-from tqdm import tqdm
-
-from creditext.utils.domain_handler import (
-    flip_if_needed,
-    lookup,
-    reverse_domain,
-)
-from creditext.utils.readers import get_full_dict, load_target_nids
+from load_labels import get_full_dict
+from matching import flip_if_needed, lookup_exact
 
 _extract = tldextract.TLDExtract(include_psl_private_domains=True)
 MAX_DOMAINS_TO_SHOW = 50
@@ -21,20 +15,9 @@ SAMPLES_PER_DOMAIN = 5
 def strict_exact_etld1_match(
     raw_domain: str, rated_domains: Dict[str, List[float]]
 ) -> Optional[str]:
-    """Return the eTLD+1 if and only if rotating labels yields EXACTLY eTLD+1 (no subdomain) that exists in rated_domains.
-
+    """Accept only if rotating labels yields EXACTLY eTLD+1 (no subdomain) that exists in rated_domains.
     Examples matching: 'news.cn' -> 'news.cn'; 'co.uk.theregister' -> 'theregister.co.uk'
     Examples rejected: 'cn.360.news' (subdomain present), 'com.10...go' (subdomain present).
-
-    Parameters:
-        raw_domain : str
-            Raw domain string, possibly reversed, rotated, or malformed.
-        rated_domains : Dict[str, List[float]]
-            Mapping from canonical eTLD+1 domains to their rating vectors.
-
-    Returns:
-        Optional[str]
-            The canonical eTLD+1 if a strict exact match is found, otherwise None.
     """
     labels = [p for p in raw_domain.strip('.').lower().split('.') if p]
 
@@ -58,19 +41,7 @@ def strict_exact_etld1_match(
 def generate_exact_targets(
     vertices_gz: str, targets_csv_out: str, dqr_domains: Dict[str, List[float]]
 ) -> None:
-    """Generate a CSV of target nodes whose domains strictly match rated eTLD+1 domains.
-
-    Parameters:
-        vertices_gz : str
-            Path to the gzip-compressed vertex file containing node IDs and raw domains.
-        targets_csv_out : str
-            Path where the output targets CSV will be written.
-        dqr_domains : Dict[str, List[float]]
-            Mapping from rated eTLD+1 domains to their associated feature vectors.
-
-    Returns:
-        None
-    """
+    """Generate targets.csv with exact domain matches."""
     chosen: Dict[str, Tuple[int, List[float]]] = {}  # domain -> (nid, metrics)
     total_lines = 0
     rejected = 0
@@ -129,88 +100,24 @@ def generate_exact_targets(
     )
 
 
-def generate_exact_targets_csv(
-    node_file: str, targets_csv_out: str, dqr_domains: Dict[str, List[float]]
-) -> None:
-    """Generate a CSV of target domains whose raw domain fields strictly match rated eTLD+1 domains.
-
-    Parameters:
-        node_file : str
-            Path to the input CSV containing a 'domain' column.
-        targets_csv_out : str
-            Path where the output targets CSV will be written.
-        dqr_domains : Dict[str, List[float]]
-            Mapping from rated eTLD+1 domains to their associated feature vectors.
-    """
-    chosen: Dict[str, List[float]] = {}  # domain -> (domain, metrics)
-    total_lines = 0
-    rejected = 0
-
-    with open(node_file, 'rt', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in tqdm(reader, desc='Reading domains'):
-            total_lines += 1
-            raw_domain = row.get('domain', '').strip()
-            if not raw_domain:
-                continue
-
-            etld1 = strict_exact_etld1_match(raw_domain, dqr_domains)
-            if etld1 is None:
-                rejected += 1
-                continue
-
-            metrics = dqr_domains[etld1]
-            if etld1 not in chosen:
-                chosen[reverse_domain(etld1)] = metrics
-
-    with open(targets_csv_out, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(
-            [
-                'domain',
-                'pc1',
-                'afm',
-                'afm_bias',
-                'afm_min',
-                'afm_rely',
-                'fc',
-                'mbfc',
-                'mbfc_bias',
-                'mbfc_fact',
-                'mbfc_min',
-                'lewandowsky_acc',
-                'lewandowsky_trans',
-                'lewandowsky_rely',
-                'lewandowsky_mean',
-                'lewandowsky_min',
-                'misinfome_bin',
+def load_target_nids(path: str) -> set[int]:
+    nids = set()
+    with open(path, newline='', encoding='utf-8') as f:
+        r = csv.DictReader(f)
+        if r.fieldnames:
+            r.fieldnames = [
+                fn.strip().lstrip('\ufeff') if fn else fn for fn in r.fieldnames
             ]
-        )
-        for domain, values in tqdm(chosen.items(), desc='Writing target features'):
-            writer.writerow([domain, *values])
+        nid_key = 'nid'
 
-    print(f'[INFO] Generation done. Processed {total_lines:,} vertex rows.')
-    print(
-        f'[INFO] Wrote {len(chosen):,} exact-domain targets to {targets_csv_out}, rejected {rejected:,} nodes.'
-    )
+        for row in r:
+            nid_str = row.get(nid_key, '').strip()
+            nids.add(int(nid_str))
+
+    return nids
 
 
 def generate(vertices_gz: str, targets_csv: str) -> None:
-    """Generate strict exact-match targets and analyze their distribution over rated domains.
-
-    This performs:
-      1. Loading of rated domains (DQR),
-      2. Generation of a targets CSV via strict exact eTLD+1 matching,
-      3. Mapping of generated target node IDs back to raw domains,
-      4. Normalization and lookup against the rated domain set,
-      5. Reporting coverage, collisions, and example mappings.
-
-    Parameters:
-        vertices_gz : str
-            Path to the gzip-compressed vertex file containing node IDs and raw domains.
-        targets_csv : str
-            Path where the generated targets CSV will be written and read back from.
-    """
     dqr = get_full_dict()
 
     # GENERATION
@@ -246,7 +153,7 @@ def generate(vertices_gz: str, targets_csv: str) -> None:
         if not norm or '.' not in norm:
             parse_fail += 1
             continue
-        if lookup(norm, dqr) is not None:
+        if lookup_exact(norm, dqr) is not None:
             domain_to_nids[norm].append(nid)
             if len(domain_to_samples[norm]) < SAMPLES_PER_DOMAIN:
                 domain_to_samples[norm].append((nid, raw_dom, norm))
@@ -280,3 +187,10 @@ def generate(vertices_gz: str, targets_csv: str) -> None:
 
     else:
         print('\n[ERR] No targets matched any rated domain.')
+
+
+# if __name__ == "__main__":
+#     generate_targets(
+#         vertices_gz="/home/mila/k/kondrupe/scratch/crawl-data/CC-MAIN-2024-51/output0035-5090/processed/vertices.csv.gz",
+#         targets_csv="/home/mila/k/kondrupe/scratch/crawl-data/CC-MAIN-2024-51/output0035-5090/processed/targets.csv"
+#     )

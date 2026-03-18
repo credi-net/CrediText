@@ -3,7 +3,7 @@ name = "creditext"
 version = "0.1.0"
 description = "Temporal Graph Analysis on Large-Scale Web Data"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [
 ]
 dependencies = [
@@ -16,7 +16,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "requests>=2.32.3",
     "scikit-learn>=1.6.1",
-    "scipy>=1.13.1",
+    "scipy>=1.16.0",
     "sentence-transformers>=5.0.0",
     "tldextract>=5.3.0",
     "torch>=2.7.1",
@@ -27,6 +27,15 @@ dependencies = [
     "cloudscraper>=1.2.71",
     "BeautifulSoup4>=4.13.0",
     "jsonpath-ng>=1.7.0",
+    "ollama>=0.5.0",
+    "nltk",
+    "lightgbm>=3.3.5",
+    "pandas",
+    "pyarrow",
+    "huggingface-hub",
+    "jsonpath_ng",
+    "vllm",
+    "duckdb",
 ]
 
 [tool.flit.module]
@@ -99,13 +108,10 @@ addopts = [
     "--color=yes",
     "-vvv",
 ]
-markers = [
-    "integration: marks integration tests (deselect with '-m \"not integration\"')"
-]
 
 
 [tool.coverage.run]
-source = ["creditext"]
+source = ["tgrag"]
 
 [tool.coverage.report]
 exclude_lines = [
