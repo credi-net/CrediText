@@ -43,7 +43,7 @@ def main() -> None:
             'Qwen/Qwen3-Embedding-8B',
             'Qwen/Qwen3-Embedding-4B',
             'google/embeddinggemma-300m',
-            'sentence-transformer/all-MiniLM-v2',
+            'sentence-transformer/all-MiniLM-L6-v2',
         ],
     )
     parser.add_argument(
