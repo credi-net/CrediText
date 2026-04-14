@@ -4,7 +4,10 @@ construction/CC-*
 #Pycharm
 .idea/
 
-
+######### data
+data_org/
+logs/
+plots/
 
 #Gitignore common:
 # Byte-compiled / optimized / DLL files
@@ -179,5 +182,16 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# PyPI configuration file
-.pypirc
+# data
+*.csv
+*.parquet
+*.tar
+*.ipynb
+*.pypirc
+*.pkl
+*.log
+*.pdf
+*.gz
+bash_scripts/spark-warehouse/*
+creditext/content_embbeding/dqr_*.pkl
+creditext/content_embbeding/dqr_propella_annotations_html

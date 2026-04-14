@@ -1,7 +1,7 @@
 import pickle
 from typing import List, Tuple
 
-from creditext.utils.path import get_root_dir
+from tgrag.utils.path import get_root_dir
 
 
 def save_loss_results(
@@ -9,16 +9,6 @@ def save_loss_results(
     model_name: str,
     encoder_name: str,
 ) -> None:
-    """Persist training loss traces to disk under a structured results directory.
-
-    Parameters:
-        loss_tuple_run : List[List[Tuple[float, float, float, float, float]]]
-            Nested list of per-run, per-step loss tuples.
-        model_name : str
-            Name of the model, used as the first-level directory key.
-        encoder_name : str
-            Name of the encoder, used as the second-level directory key.
-    """
     root = get_root_dir()
     save_dir = root / 'results' / 'logs' / model_name / encoder_name
     save_dir.mkdir(parents=True, exist_ok=True)

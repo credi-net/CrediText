@@ -130,6 +130,11 @@ class CCSparkJob(object):
             '--trusted_domains',
             help='The trusted domains pc1 .csv file to filter the WET file domains',
         )
+        arg_parser.add_argument(
+            '--filter_by_supported_languages',
+            action='store_true',
+            help='Whether to filter_by_supported_languages or not',
+        )
 
         self.add_arguments(arg_parser)
         args = arg_parser.parse_args()
@@ -197,18 +202,20 @@ class CCSparkJob(object):
         """Run the job"""
         self.args = self.parse_arguments()
 
-        builder = (
-            SparkSession.builder.appName(self.name)
-            # .config("spark.executor.instances", str(os.cpu_count()/4))   # Number of executor JVMs (workers)
-            .config('spark.executor.cores', '4')
-            .config('spark.executor.instances', '8')
-            .config('spark.executor.memory', '2g')
-            .config('spark.driver.memory', '5g')
-            .config('spark.hadoop.dfs.block.size', '256m')
-            .config('spark.sql.files.maxPartitionBytes', '256mb')
-            .config('spark.ui.host', '0.0.0.0')
-            .config('spark.ui.port', '4040')
-        )
+        builder = (SparkSession.builder\
+                   .appName(self.name)
+                   # .config("spark.executor.instances", str(os.cpu_count()/4))   # Number of executor JVMs (workers)
+                   .config("spark.executor.cores", "4")
+                   .config("spark.executor.instances", "8")
+                   .config("spark.executor.memory", "8g")
+                   .config("spark.yarn.executor.memoryOverhead", "2g")
+                   .config("spark.driver.memory", "10g")
+                   .config("spark.hadoop.dfs.block.size", "256m")
+                   .config("spark.sql.files.maxPartitionBytes", "256mb")
+                   .config("spark.ui.host", "0.0.0.0")
+                   .config("spark.ui.port", "4040")
+                   .config("spark.driver.extraJavaOptions", "-XX:+UseG1GC")
+                  )
 
         if self.args.spark_profiler:
             builder.config('spark.python.profile', 'true')

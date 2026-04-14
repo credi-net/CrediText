@@ -1,0 +1,14 @@
+args=Namespace(content_path='/home/mila/a/abdallah/scratch/hsh_projects/CrediText/data/weaksupervision/weaksupervision_content_Dec2024.parquet', start_idx=4, end_idx=6, parquet_batch_size=10000, emb_batch_size=100)
+Compiling model with torch.compile (first batch will be slow)...
+batches_count=6
+parquet_batch_idx=0
+skip parquet_batch_idx:0
+parquet_batch_idx=1
+skip parquet_batch_idx:1
+parquet_batch_idx=2
+skip parquet_batch_idx:2
+parquet_batch_idx=3
+skip parquet_batch_idx:3
+parquet_batch_idx=4
+emb_file_name=/home/mila/a/abdallah/scratch/hsh_projects/CrediText/data/weaksupervision/weaksupervision_RoBERTa_4.pkl
+parquet_batch_idx=5
