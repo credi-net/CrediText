@@ -36,6 +36,8 @@ dependencies = [
     "jsonpath_ng",
     "vllm",
     "duckdb",
+    "resiliparse",
+    "shap"
 ]
 
 [tool.flit.module]
@@ -59,6 +61,7 @@ dev = [
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
     "types-pyyaml>=6.0.12.20240917",
+    "shap"
 ]
 analytics = [
 ]

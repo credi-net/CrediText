@@ -182,23 +182,16 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# PyPI configuration file
-.pypirc
-bash_scripts/jdk-17.0.12_linux-x64_bin.tar.gz
-.gitignore
-bash_scripts/jdk-25_linux-x64_bin.tar.gz
-.gitignore
-bash_scripts/job_content_ext_sbatch10.sh
-bash_scripts/CC-Crawls/CC-2024-nov.txt
-bash_scripts/spark-warehouse/cc_full_index_ccmain202505.parquet
-bash_scripts/spark-warehouse/cc_full_index_ccmain202508.parquet
-bash_scripts/spark-warehouse/cc_full_index_ccmain202513.parquet
-bash_scripts/spark-warehouse/cc_full_index_unique_domain_ccmain202505.parquet
-bash_scripts/spark-warehouse/cc_full_index_unique_domain_ccmain202508.parquet
-bash_scripts/spark-warehouse/cc_full_index_unique_domain_ccmain202513.parquet
-bash_scripts/spark-warehouse/ccmain202505_domains_watfiles_min.csv
-bash_scripts/spark-warehouse/ccmain202505_domains_watfiles_min.csv
-bash_scripts/spark-warehouse/ccmain202513_domains_watfiles_min.csv
-bash_scripts/spark-warehouse/Untitled.ipynb
-bash_scripts/spark-warehouse/ccmain202508_domains_watfiles_min.csv
-bash_scripts/jdk-25_linux-x64_bin.tar
+# data
+*.csv
+*.parquet
+*.tar
+*.ipynb
+*.pypirc
+*.pkl
+*.log
+*.pdf
+*.gz
+bash_scripts/spark-warehouse/*
+creditext/content_embbeding/dqr_*.pkl
+creditext/content_embbeding/dqr_propella_annotations_html

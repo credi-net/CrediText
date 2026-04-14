@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument("--local_dir", type=str, default="/home/mila/a/abdallah/hsh_projects/content_emb/content_emb", help="document key column")
     parser.add_argument("--hf_files_start_idx", type=int, default=0, help="start file idx")
     parser.add_argument("--hf_files_end_idx", type=int, default=100, help="end file idx")
+    parser.add_argument("--text_col", type=str, default="warc_record_text_resili", choices=["wet_record_txt","warc_record_text_resili"], help="text column name in parquet files to embed")
     parser.add_argument("--parquet_batch_size", type=int, default=100000, help="parquet file read rows batch_size")
     parser.add_argument("--emb_batch_size", type=int, default=5000, help="GPU emb batch size")
     parser.add_argument("--emb_dim", type=int, default=256, help="resize embedding dim")
@@ -34,7 +35,7 @@ if __name__ == '__main__':
     repo_parquet_files_lst = get_ds_files(args.hf_repo_id)
     model = SentenceTransformer(args.emb_model)
     for f_idx, f in tqdm(enumerate(repo_parquet_files_lst[args.hf_files_start_idx:args.hf_files_end_idx+1])):
-        hf_hub_download(repo_id=args.hf_repo_id, filename=f, repo_type="dataset", local_dir=f"{args.local_dir}/{ds_name}/")
+        # hf_hub_download(repo_id=args.hf_repo_id, filename=f, repo_type="dataset", local_dir=f"{args.local_dir}/{ds_name}/")
         # print(f"{local_dir}/{ds_name}/{f}")
         parquet_file = pq.ParquetFile(f"{args.local_dir}/{ds_name}/{f}")
         print(f"file={f}")
@@ -43,7 +44,7 @@ if __name__ == '__main__':
             df_chunk = batch.to_pandas()
             urls_lst = df_chunk["WARC_Target_URI"].tolist()
             domains_lst = df_chunk["Domain_Name"].tolist()
-            domains_txt = df_chunk["wet_record_txt"].astype(str).tolist()
+            domains_txt = df_chunk[args.text_col].astype(str).tolist()
             embds = {}
             for emb_batch_idx in tqdm(range(0, len(domains_lst), args.emb_batch_size)):
                 batch_emb = model.encode(domains_txt[emb_batch_idx:emb_batch_idx + args.emb_batch_size])

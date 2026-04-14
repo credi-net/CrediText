@@ -18,7 +18,7 @@ else
       CRAWL=$1
 fi
 CRAWL=${CRAWL,,}
-wetFilesOrder="credigraph_${CRAWL}_wetFilesOrder.txt"
+wetFilesOrder="${CRAWL}_wet_FilesOrder.txt"
 if [ -z "$2" ]; then
       Month=Feb2025
 else

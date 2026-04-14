@@ -10,7 +10,7 @@ def embd_documents(model_name,documents_path,k_col,text_col,batch_size=100, useO
     keys_lst = data_df[k_col].tolist()
     docs_lst = data_df[text_col].astype(str).tolist()
     embds = {}
-    for emb_batch_idx in range(0, len(keys_lst), batch_size):
+    for emb_batch_idx in tqdm(range(0, len(keys_lst), batch_size)):
         # print("emb_batch_idx=", emb_batch_idx)
         if useOllama:
             response = ollama.embed(model="hf.co/Qwen/Qwen3-Embedding-8B-GGUF:Q4_K_M",
@@ -24,13 +24,16 @@ def embd_documents(model_name,documents_path,k_col,text_col,batch_size=100, useO
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Content Embedding")
-    parser.add_argument("--documents_path", type=str, default="../../data/dqr/domain_pc1.csv", help="dqr dataset path")
-    parser.add_argument("--model_name", type=str, default="Qwen/Qwen3-Embedding-0.6B", help="LLM model Name", choices=["Qwen/Qwen3-Embedding-0.6B","Qwen/Qwen3-Embedding-8B","Qwen/Qwen3-Embedding-4B","google/embeddinggemma-300m"])
-    parser.add_argument("--k_col", type=str, default="domain", help="document key column")
-    parser.add_argument("--text_col", type=str, default="text", help="document text column")
+    # parser.add_argument("--documents_path", type=str, default="../../data/dqr/domain_pc1.csv", help="dqr dataset path")
+    parser.add_argument("--documents_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/data/scrapedContent/dqr_active_domains_scraped_homepage_html/dqr_active_domains_scraped_homepage_resiliparse.csv", help="dqr dataset path")    
+    parser.add_argument("--model_name", type=str, default="google/embeddinggemma-300m", help="LLM model Name", choices=["Qwen/Qwen3-Embedding-0.6B","Qwen/Qwen3-Embedding-8B","Qwen/Qwen3-Embedding-4B","google/embeddinggemma-300m"])
+    # parser.add_argument("--k_col", type=str, default="domain", help="document key column")
+    parser.add_argument("--k_col", type=str, default="url", help="document key column")
+    # parser.add_argument("--text_col", type=str, default="text", help="document text column")
+    parser.add_argument("--text_col", type=str, default="resiliparse_text", help="document text column")
     parser.add_argument("--batch_size", type=int, default=100, help="scarp batch_size")
     args = parser.parse_args()
     embddings=embd_documents(args.model_name,args.documents_path,args.k_col,args.text_col,args.batch_size)
     # with open(f'dqr_{emb_model.split("/")[-1]}_{embds['sports.nbcsports.com'].shape[0]}.pkl', 'wb') as f:
-    with open(f'/shared_mnt/dqr_{args.model_name.split("/")[-1]}_{len(embddings[list(embddings.keys())[0]])}.pkl', 'wb') as f:
+    with open(f'dqr_{args.model_name.split("/")[-1]}_{len(embddings[list(embddings.keys())[0]])}_resiliparse_text.pkl', 'wb') as f:
         pickle.dump(embddings, f)

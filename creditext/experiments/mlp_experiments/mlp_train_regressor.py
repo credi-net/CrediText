@@ -4,15 +4,19 @@ from creditext.utils.path import get_root_dir
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPRegressor as  Sklearn_MLPRegressor
+from sklearn.preprocessing import MinMaxScaler
 from mlp_modules import MLPRegressor
 from mlp_modules import MLP3LayersPredictor
 from mlp_modules import MultiTaskMLP,train_mlp,train_scikitlearn_regressor
-from utils import plot_histogram,plot_loss,plot_regression_scatter,eval
+from utils import plot_histogram,plot_loss,plot_regression_scatter,eval,save_shaply_plots
 from dataset_loader import DQR
 from creditext.utils.logger import setup_logging
 import logging
+from datetime import datetime
 def mlp_train(args) -> None:
-    run_file_name=f"dqr_{args.month}_{args.dqr_target}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}"
+    now = datetime.now()
+    iso_compact = now.strftime("%Y%m%dT%H%M%S")
+    run_file_name=f"dqr_{args.month}_{args.dqr_target}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}_{iso_compact}"
     setup_logging(f"{args.logs_out_path}/{run_file_name}.log")      
     logging.info("args=", args)      
     run_file_name=f"{args.plots_out_path}/{run_file_name}"
@@ -22,20 +26,29 @@ def mlp_train(args) -> None:
     for i in range(args.runs):
         logging.info(f"#################### Run {i} ##################")    
         run_file_name+=f"_run{str(i)}" 
-        
+        dim_multiplier=2
+        logging.info(f" hidden_dim_multiplier={dim_multiplier}")
         ###################### PYTorch Regressor  ######################
         if args.library=="pytorch":
-            mlp_reg = MLP3LayersPredictor(len(X_train_feat[0]))
+            mlp_reg = MLP3LayersPredictor(len(X_train_feat[0]),hidden_dim_multiplier=dim_multiplier)            
             # mlp_reg = MLPRegressor(len(X_train_feat[0]),hidden_layer_sizes=(int(len(X_train_feat[0]) * 0.75), 128, 64, 16))
+            # mlp_reg = MLPRegressor(len(X_train_feat[0]),hidden_layer_sizes=[int(len(X_train_feat[0]) *dim_multiplier)])
+            logging.info(f"MLP Pytorch Regressor Architecture: {mlp_reg}")
             mlp_reg, train_loss, valid_loss, test_loss, mean_loss = train_mlp(mlp_reg, X_train_feat, y_train,
                                                                             X_valid_feat, y_valid, X_test_feat,
                                                                             y_test, epochs=args.epochs)
         ######################## Scikit-Learn ###################
         elif args.library=="sklearn":
-            mlp_reg = Sklearn_MLPRegressor(hidden_layer_sizes=(128, 32),
+            # hidden_layer_sizes=(int(len(X_train_feat[0]) *dim_multiplier),32)
+            mlp_reg = Sklearn_MLPRegressor(hidden_layer_sizes=(128,32),
                                 activation='relu', solver='adam',max_iter=args.max_iter, random_state=42,
                                 verbose=False, learning_rate_init=args.lr)
             mlp_reg.out_activation_ = 'sigmoid'
+            logging.info(f"MLP Scikit-Learn Regressor Architecture: {mlp_reg}")
+            # scaler = MinMaxScaler() # fix negtaive out values
+            # X_train_feat = scaler.fit_transform(X_train_feat)
+            # X_valid_feat = scaler.transform(X_valid_feat)
+            # X_test_feat = scaler.transform(X_test_feat)
             mlp_reg, train_loss, valid_loss, test_loss, mean_loss = train_scikitlearn_regressor(mlp_reg, X_train_feat, y_train,
                                                                             X_valid_feat, y_valid, X_test_feat,
                                                                             y_test, epochs=args.epochs)
@@ -70,6 +83,9 @@ def mlp_train(args) -> None:
             pd.DataFrame(zip(embd_dict_PhishDataset_legit.keys(), PhishDataset_legit_pred),
                          columns=["domain", f"pred_{args.dqr_target}"]).to_csv(
                         f"{run_file_name}{'_agg' if args.agg_month_emb else ''}_legit_pred.csv",index=None)
+        ############# plot Shaply ################
+        if args.embed_type=="FQDN":
+            save_shaply_plots(mlp_reg, X_train_feat, X_test_feat, out_file_path=run_file_name)
         ################## Plot and Eval ###############
         true = y_test
         pred = mlp_reg.predict(X_test_feat) 
@@ -104,26 +120,29 @@ if __name__ == '__main__':
     parser.add_argument("--dqr_gnn_emb_path", type=str, default=str(root + "/data/dqr") ,help="emb files path")
     parser.add_argument("--dqr_path", type=str, default=str(root + "/data/dqr"),help="dqr dataset path")
     parser.add_argument("--embed_type", type=str, default="text",
-                        choices=["text", "domainName", "GNN_GAT", "TFIDF", "PASTEL"], help="domains embedding technique")
-    parser.add_argument("--emb_model", type=str, default="embeddingTE3L",
+                        choices=["text", "domainName", "GNN_GAT", "TFIDF", "PASTEL","propella_annotations","FQDN"], help="domains embedding technique")
+    parser.add_argument("--emb_model", type=str, default="embeddinggemma-300m",
                         choices=["embeddingQwen3-8B", "embeddingQwen3-0.6B", "embeddinggemma-300m", "embeddingTE3L",
                                  "IPTC_Topic_emb"],help="LLM embedding model")
     parser.add_argument("--batch_size", type=int, default=5000,help="training batch size")
-    parser.add_argument("--test_valid_size", type=float, default=0.4,help="ratio of test and vaild sets")
-    parser.add_argument("--emb_dim", type=int, default=3072,help="embedding size")
-    parser.add_argument("--original_emb_dim", type=int, default=3072,help="The original embedding model dim size")
+    parser.add_argument("--test_valid_size", type=float, default=0.4,help="ratio of test and valid sets")
+    parser.add_argument("--emb_dim", type=int, default=256,help="embedding size")
+    parser.add_argument("--original_emb_dim", type=int, default=768,help="The original embedding model dim size")
     parser.add_argument("--max_iter", type=int, default=200,help="MLP regressor max iteration count")
-    parser.add_argument("--lr", type=float, default=5e-3,help="learning rate")
-    parser.add_argument("--epochs", type=int,default=100, help="# training epochs")  
+    # parser.add_argument("--lr", type=float, default=5e-3,help="learning rate") #sklearn
+    parser.add_argument("--lr", type=float, default=5e-3,help="learning rate") #pytorch
+    parser.add_argument("--epochs", type=int,default=200, help="# training epochs")  
     parser.add_argument("--plots_out_path", type=str, default=str(root + "/plots"),help="plots and results store path")
     parser.add_argument("--logs_out_path", type=str, default=str(root + "/logs"),help="logging path")
     parser.add_argument("--runs", type=int, default=1,help="# training runs")
     parser.add_argument("--use_gnn_emb", action='store_false',help="append GNN embedding")
-    parser.add_argument("--gnn_encoder",   default="text", choices=["RNI","text"],help="append GNN node embedding intialization")
-    parser.add_argument("--agg_month_emb",  action='store_false', help="aggregate montly GNN embeddings")
-    parser.add_argument("--agg_text_emb", action='store_false', help="aggregate montly text embeddings")
+    parser.add_argument("--gnn_encoder",   default="RNI", choices=["RNI","text"],help="append GNN node embedding intialization")
+    parser.add_argument("--agg_month_emb",  action='store_true', help="aggregate montly GNN embeddings")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+    parser.add_argument("--agg_text_emb", action='store_true', help="aggregate montly text embeddings")
     parser.add_argument("--agg_function", type=str, default="avg",choices=["avg","cat"], help="aggregate function")
     parser.add_argument("--use_topic_emb", action='store_true',help="use topic modeling features")
+    parser.add_argument("--use_propella_annotations", action='store_true',help="use propella_annotations")
+    parser.add_argument("--use_FQDN", action='store_true',help="use fqdn_features")
     parser.add_argument("--filter_by_GNN_nodes", action='store_false',help="filter by domains has GNN embeddings")
     parser.add_argument("--filter_by_PASTEL_domains", action='store_true',help="filter by domains has PASTEL embeddings")
     parser.add_argument("--generate_weaksupervision_scores", type=bool, default=False, help="gnerate weak supervision datasets scores")

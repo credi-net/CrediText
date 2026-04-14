@@ -45,8 +45,8 @@ export PYSPARK_DRIVER_PYTHON="$VENV_PATH/bin/python"
 "$VENV_PATH/bin/spark-submit" \
   --driver-memory 10g \
   --executor-memory 5g \
-  --py-files "$PROJECT_ROOT/tgrag/cc-scripts/sparkcc.py" \
-  "$PROJECT_ROOT/tgrag/cc-scripts/wet_extract_domain_urls.py" \
+  --py-files "$PROJECT_ROOT/creditext/cc-scripts/sparkcc.py" \
+  "$PROJECT_ROOT/creditext/cc-scripts/wet_extract_domain_urls.py" \
   "$INPUT_DIR/test_wet.txt" \
   "$outputTableName" \
   --trusted_domains "../data/cc-label+deg_3.txt" \

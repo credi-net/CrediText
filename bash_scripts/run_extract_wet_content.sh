@@ -65,13 +65,13 @@ export PYSPARK_DRIVER_PYTHON="$VENV_PATH/bin/python"
 # Cluster / full usage: ""$INPUT_DIR/all_wat_$CRAWL.txt"
 # --trusted_domains "../data/dqr/domain_pc1.csv"\
 # --trusted_domains "../common_urls_set_84k.csv" \
-# "$PROJECT_ROOT/tgrag/cc-scripts/wet_extract_domain_content_11k.py"
+# "$PROJECT_ROOT/creditext/cc-scripts/wet_extract_domain_content_11k.py"
 
 "$VENV_PATH/bin/spark-submit" \
     --driver-memory 10g \
     --executor-memory 5g \
-    --py-files "$PROJECT_ROOT/tgrag/cc-scripts/sparkcc.py" \
-    "$PROJECT_ROOT/tgrag/cc-scripts/wet_extract_domain_content.py" \
+    --py-files "$PROJECT_ROOT/creditext/cc-scripts/sparkcc.py" \
+    "$PROJECT_ROOT/creditext/cc-scripts/wet_extract_domain_content.py" \
     "$INPUT_DIR/${CRAWL}_test_wet_${start_idx}_${end_idx}.txt" \
     "$outputTableName" \
     --trusted_domains "$seed_list" \

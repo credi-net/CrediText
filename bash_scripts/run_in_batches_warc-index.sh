@@ -2,9 +2,9 @@
 #SBATCH --ntasks=1
 #SBATCH --partition=long-cpu
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=128G
-#SBATCH --time=10:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH --time=05:00:00
 #SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/cc-index-build_job_%j.out
 #SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/cc-index-build_job_%j.err
 

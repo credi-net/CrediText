@@ -68,8 +68,8 @@ echo "INPUT_DIR=$INPUT_DIR"
 "$VENV_PATH/bin/spark-submit" \
     --driver-memory 15g \
     --executor-memory 10g \
-    --py-files "$PROJECT_ROOT/tgrag/cc-scripts/sparkcc.py" \
-    "$PROJECT_ROOT/tgrag/cc-scripts/filter_cc_index.py" \
+    --py-files "$PROJECT_ROOT/creditext/cc-scripts/sparkcc.py" \
+    "$PROJECT_ROOT/creditext/cc-scripts/filter_cc_index.py" \
     "$INPUT_DIR/${CRAWL}_test_cc-index-table_${start_idx}_${end_idx}.txt" \
     "$outputTableName" \
     --trusted_domains "$seed_list" \

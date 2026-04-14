@@ -38,6 +38,7 @@ def scrape(url):
                     response = scraper.get("http://" + url, headers=headers, timeout=5)
                 except Exception as e:
                     return [None, str(e), None, None, url]
+    html=response.text
     soup = BeautifulSoup(response.text, 'html.parser')
     res = []
     try:
@@ -60,6 +61,7 @@ def scrape(url):
         res.append(og_title)
     except:
         res.append(None)
+    res.append(html)
     res.append(soup.get_text())
     res.append(url)
     scraper.close()
@@ -67,7 +69,8 @@ def scrape(url):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="WebSite Home Page Scraper")
-    parser.add_argument("--domains_path", type=str, default="../../data/weaksupervision/labels.csv", help="dqr dataset path")
+    parser.add_argument("--domains_path", type=str, default="../../data/weaksupervision/weaklabels.csv", help="dqr dataset path")
+    # parser.add_argument("--domains_path", type=str, default="../../data/dqr/dqr_active_domains.csv", help="dqr dataset path")
     parser.add_argument("--output_path", type=str, default="../../data/scrape/",help="output path")
     parser.add_argument("--batch_size", type=int, default=1000, help="scarp batch_size")
     args = parser.parse_args()
@@ -79,7 +82,7 @@ if __name__ == "__main__":
     del domains_df
     print(f"len of domains={len(domains_lst)}")
     batch_size = args.batch_size
-    for b_idx in tqdm(range(392000, 400000, batch_size)):
+    for b_idx in tqdm(range(0, len(domains_lst), batch_size)):
         print(f"Scraping batch starting at index: {b_idx}")
         threads = []
         results = []
@@ -92,5 +95,5 @@ if __name__ == "__main__":
                 thread.start()
             for thread in threads[i:i + 100]:
                 thread.join()
-        results_df = pd.DataFrame(results, columns=["title", "desc", "OG-Title", "text", "url"])
+        results_df = pd.DataFrame(results, columns=["title", "desc", "OG-Title","html", "text", "url"])
         results_df.to_csv(f"../../data/scrapedContent/{args.domains_path.split('/')[-1].split('.')[0]}_scraped_homepage_{b_idx}.csv", index=None, encoding='utf-8',errors='ignore')

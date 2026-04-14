@@ -12,7 +12,8 @@ fetch_with_retries() {
          --timeout=60 --read-timeout=60 \
          -O "$tmp" "$url" && status=0 || status=$?
 #    echo "status=$status tmp=$tmp"
-    if [[ $status -eq 0 ]] && ([[ $url = *.parquet ]] || ([[ $url = *.gz ]] && gzip -t "$tmp" 2>/dev/null)); then
+    # if [[ $status -eq 0 ]] && ([[ $url = *.parquet ]] || ([[ $url = *.gz ]] && gzip -t "$tmp" 2>/dev/null)); then # check if zip file is not corrupt
+    if [[ $status -eq 0 ]] && ([[ $url = *.parquet ]] || [[ $url = *.gz ]]); then # check if zip file is exist only
       echo "url=$url"
       mv -f "$tmp" "$out"
       return 0
@@ -101,7 +102,7 @@ for data_type in  "${cc_file_types[@]}" ; do
   if [[ "$listing" == "0" ]]; then
       echo "listing is not provided"
       listing="$DATA_DIR/crawl-data/$CRAWL/$data_type.paths.gz"
-      if [ -e "$all_listing_content_path" ]; then ## listing paths has been downloaded in previouse batches
+      if [[ -e "$all_listing_content_path" ]]; then ## listing paths has been downloaded in previouse batches
           echo "$all_listing_content_path exist."
           listing_content=$(<"$all_listing_content_path")  
       else  ## listing paths is to be downloaded
@@ -207,8 +208,8 @@ for data_type in  "${cc_file_types[@]}" ; do
       # verify gzip; re-download if corrupt
       test -f "$file_path" && cand="$file_path" || cand="$target_file"
       echo "cand=$cand"
-      if [[ $cand = *.parquet ]] || ([[ $cand = *.gz ]] && gzip -t "$cand" 2>/dev/null); then
-        echo "File '$cand' exists."
+      # if [[ $cand = *.parquet ]] || ([[ $cand = *.gz ]] && gzip -t "$cand" 2>/dev/null); then # check if zip file is not corrupt
+      if [[ $cand = *.parquet ]] || [[ $cand = *.gz ]]; then # check if zip file is exist
         downloaded=$((downloaded+1))
         continue
       else

@@ -15,12 +15,13 @@ from sklearn.metrics import log_loss
 import torch.nn.functional as F
 from torch import Tensor, nn
 from samplers import BalancedBatchSampler, BinaryClassificationDataset,BalancedRegClsBatchSampler,MultiTaskDataset
+from halo import  HALOLoss,HALOModel
 # ----------------------------
 seed = 42
 torch.manual_seed(seed)
 random.seed(seed)
 
-def train_scikitlearn_regressor(mlp_reg, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, epochs=15):
+def train_scikitlearn_regressor(mlp_reg: object, X_train_feat: list[list[float]], Y_train: list[list[float]], X_valid_feat: list[list[float]], Y_valid: list[list[float]], X_test_feat: list[list[float]], Y_test: list[list[float]], epochs: int = 15):
     batch_size, train_loss, valid_loss, test_loss, mean_loss = 5000, [], [], [], []
     early_stopper = Sklearn_EarlyStopping(patience=5)
     for _ in tqdm(range(epochs)):
@@ -28,16 +29,17 @@ def train_scikitlearn_regressor(mlp_reg, X_train_feat, Y_train, X_valid_feat, Y_
             X_batch, y_batch = X_train_feat[b:b + batch_size], Y_train[b:b + batch_size]
             batch_mean = sum(y_batch) / len(y_batch)
             mlp_reg.partial_fit(X_batch, y_batch)
-            train_loss.append(mlp_reg.loss_)
-            valid_loss.append(mean_squared_error(Y_valid, mlp_reg.predict(X_valid_feat)))
-            test_loss.append(mean_squared_error(Y_test, mlp_reg.predict(X_test_feat)))
-            mean_loss.append(mean_squared_error(y_batch, [batch_mean for elem in y_batch]))
+        train_loss.append(mlp_reg.loss_)
+        valid_loss.append(mean_squared_error(Y_valid, mlp_reg.predict(X_valid_feat)))
+        test_loss.append(mean_squared_error(Y_test, mlp_reg.predict(X_test_feat)))
+        mean_loss.append(mean_squared_error(y_batch, [batch_mean for elem in y_batch]))
+        # logging.info(f"train_loss={train_loss[-1]} valid_loss={valid_loss[-1]} test_loss={test_loss[-1]} mean_loss={mean_loss[-1]}")
         if early_stopper.step(valid_loss[-1], mlp_reg):
             logging.info("Early stopping triggered.")
             mlp_reg = early_stopper.restore_best_weights()
             break
     return mlp_reg, train_loss, valid_loss, test_loss, mean_loss
-def train_scikitlearn_classifier(mlp_clf, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, epochs=15):
+def train_scikitlearn_classifier(mlp_clf: object, X_train_feat: list[list[float]], Y_train: list[list[float]], X_valid_feat: list[list[float]], Y_valid: list[list[float]], X_test_feat: list[list[float]], Y_test: list[list[float]], epochs: int = 15):
     batch_size, train_loss, valid_loss, test_loss = 5000, [], [], []
     early_stopper = Sklearn_EarlyStopping(patience=5)
     all_classes = np.unique(Y_train)
@@ -56,7 +58,7 @@ def train_scikitlearn_classifier(mlp_clf, X_train_feat, Y_train, X_valid_feat, Y
             mlp_clf = early_stopper.restore_best_weights()
             break
     return mlp_clf, train_loss, valid_loss, test_loss,None
-def train_scikitlearn_classifier_unbalanced(mlp_clf, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, epochs=15):
+def train_scikitlearn_classifier_unbalanced(mlp_clf: object, X_train_feat: list[list[float]], Y_train: list[list[float]], X_valid_feat: list[list[float]], Y_valid: list[list[float]], X_test_feat: list[list[float]], Y_test: list[list[float]], epochs: int = 15):
     batch_size, train_loss, valid_loss, test_loss = 5000, [], [], []
     sampler = BalancedBatchSampler(Y_train, batch_size=batch_size)
     dataset = BinaryClassificationDataset(X_train_feat, Y_train)    
@@ -79,14 +81,14 @@ def train_scikitlearn_classifier_unbalanced(mlp_clf, X_train_feat, Y_train, X_va
     return mlp_clf, train_loss, valid_loss, test_loss,None
 
 class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0.0):
+    def __init__(self, patience: int = 5, min_delta: float = 0.0):
         self.patience = patience
         self.min_delta = min_delta
         self.best_loss = float("inf")
         self.counter = 0
         self.best_state = None
 
-    def step(self, val_loss, model):
+    def step(self, val_loss: float, model: object):
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
             self.counter = 0
@@ -96,17 +98,17 @@ class EarlyStopping:
             self.counter += 1
             return self.counter >= self.patience
 
-    def restore_best_weights(self, model):
+    def restore_best_weights(self, model: object):
         model.load_state_dict(self.best_state)
 class Sklearn_EarlyStopping:
-    def __init__(self, patience=5, min_delta=0.0):
+    def __init__(self, patience: int = 5, min_delta: float = 0.0):
         self.patience = patience
         self.min_delta = min_delta
         self.best_loss = float("inf")
         self.counter = 0
         self.best_state = None
 
-    def step(self, val_loss, model):
+    def step(self, val_loss: float, model: object):
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
             self.counter = 0
@@ -123,7 +125,7 @@ class MLP3LayersPredictor(nn.Module):
         self, in_dim: int, hidden_dim_multiplier: float = 0.5, out_dim: int = 1
     ):
         super().__init__()
-        hidden_dim = int(hidden_dim_multiplier * in_dim)
+        hidden_dim = max(int(hidden_dim_multiplier * in_dim),128)
         self.lin_node = nn.Linear(in_dim, hidden_dim)
         self.lin_node2 = nn.Linear(hidden_dim, hidden_dim//2)
         self.lin_node3 = nn.Linear(hidden_dim//2, hidden_dim//8)
@@ -148,23 +150,24 @@ class LabelPredictor(nn.Module):
     def __init__(
         self, in_dim: int, hidden_dim_multiplier: float = 0.5, out_dim: int = 2
     ):
-        super().__init__()
-        hidden_dim = int(hidden_dim_multiplier * in_dim)
+        super().__init__()        
+        self.hidden_dim = int(hidden_dim_multiplier * in_dim)
+        self.out_dim = out_dim
         # hidden_dim=64
-        self.lin_node = nn.Linear(in_dim, hidden_dim)
-        self.out = nn.Linear(hidden_dim, out_dim)
+        self.lin_node = nn.Linear(in_dim, self.hidden_dim)
+        self.out = nn.Linear(self.hidden_dim, self.out_dim)
         self.activation=nn.ReLU()
         # self.activation=nn.GELU()
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.lin_node(x)
         x = self.activation(x)
         x = self.out(x)
         return torch.log_softmax(x, dim=-1)
-    def predict(self, x):
+    def predict(self, x: list[list]):
         return self.forward(torch.tensor(x).float()).argmax(dim=-1) 
 class MLPRegressor(nn.Module):
-    def __init__(self, input_size, hidden_layer_sizes):
+    def __init__(self, input_size: int, hidden_layer_sizes: list[int]):
         super(MLPRegressor, self).__init__()
         self.activation=nn.ReLU()
         # self.activation=nn.GELU()
@@ -183,7 +186,7 @@ class MLPRegressor(nn.Module):
 
     def predict(self, x):
         return self.forward(torch.tensor(x).float()).detach().squeeze(1).numpy()
-def train_mlp(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, lr=1e-4, epochs=15):
+def train_mlp(model: nn.Module, X_train_feat: list[list[float]], Y_train: list[float], X_valid_feat: list[list[float]], Y_valid: list[float], X_test_feat: list[list[float]], Y_test: list[float], lr: float = 1e-4, epochs: int = 15):
     model.train()
     batch_size, train_loss, valid_loss, test_loss, mean_loss = len(Y_train)//5, [], [], [], []
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -196,7 +199,6 @@ def train_mlp(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, 
             reg_out= model(torch.tensor(X_batch).float())
             # Loss calculations
             loss_reg = criterion_reg(reg_out.squeeze(1), torch.tensor(y_reg))
-            # Weighted multi-task loss
             train_loss_val = loss_reg 
             train_loss.append(train_loss_val.detach().numpy())
             val_reg_out = model(torch.tensor(X_valid_feat).float())
@@ -204,8 +206,9 @@ def train_mlp(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, 
             test_reg_out = model(torch.tensor(X_test_feat).float())
             test_loss.append(criterion_reg(test_reg_out.detach().squeeze(1), torch.tensor(Y_test)))
             mean_loss.append(mean_squared_error(y_reg, [batch_mean for elem in y_reg]))
+            # logging.info(f"Epoch={epoch}\t Batch={b}\t train_loss={train_loss[-1]}\t valid_loss={valid_loss[-1]}\t test_loss={test_loss[-1]}\t mean_loss={mean_loss[-1]}")
             if epochs>(epoch+1):
-                train_loss_val.backward()
+                loss_reg.backward()
                 optimizer.step()
         if early_stopper.step(valid_loss[-1], model):
             logging.info("Early stopping triggered.")
@@ -213,7 +216,7 @@ def train_mlp(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, 
             break
     return model, train_loss, valid_loss, test_loss, mean_loss
 
-def train_classifier(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, lr=1e-4, epochs=15):
+def train_classifier(model: nn.Module, X_train_feat: list[list[float]], Y_train: list[float], X_valid_feat: list[list[float]], Y_valid: list[float], X_test_feat: list[list[float]], Y_test: list[float], lr: float = 1e-4, epochs: int = 15):
     model.train()
     batch_size, train_loss_lst, valid_loss_lst, test_loss_lst = len(Y_train)//5, [], [], []
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -245,35 +248,97 @@ def train_classifier(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test
             early_stopper.restore_best_weights(model)
             break
     return model, train_loss_lst, valid_loss_lst, test_loss_lst, None
+
+def train_classifier_unbalanced_halo(model: nn.Module, X_train_feat: list[list[float]], Y_train: list[float], X_valid_feat: list[list[float]], Y_valid: list[float], X_test_feat: list[list[float]], Y_test: list[float], lr: float = 1e-4, epochs: int = 15, batch_size: int = int(1e4)):
+    sampler = BalancedBatchSampler(Y_train, batch_size=batch_size)
+    dataset = BinaryClassificationDataset(X_train_feat, Y_train)  
+    model.train()
+    batch_size, train_loss_lst, valid_loss_lst, test_loss_lst = len(Y_train)//5, [], [], []
+    criterion_clf = HALOLoss(emb_dims=model.hidden_dim , num_classes=model.out_dim)
+    halo_model = HALOModel(model=model, n_classes=model.out_dim, embedding_dim=model.out_dim)
+    centroid_targets = torch.arange(model.out_dim)
+    param_groups = list() + list(criterion_clf.parameters())
+    optimizer = torch.optim.Adam(halo_model.parameters(), lr=lr)
+
+
+    early_stopper = EarlyStopping(patience=5)
+    for epoch in tqdm(range(epochs)):
+        correct,total=0,0
+        train_loader = DataLoader(dataset, batch_sampler=sampler)
+        for batch_idx, (X_batch, y_reg) in enumerate(train_loader):
+            total += y_reg.size(0)
+            optimizer.zero_grad()
+            clf_out, centroids = halo_model(torch.tensor(X_batch).float())   
+            train_loss,logits = criterion_clf(clf_out, torch.tensor(y_reg).long(), centroids, centroid_targets) 
+            predicted = clf_out.argmax(dim=-1) 
+            correct += predicted.eq(y_reg).sum().item()
+            if epochs>(epoch+1):
+                train_loss.backward()
+                optimizer.step()
+        logging.info(f"Epoch={epoch}\t Train Accuracy={correct/total:.4f}") 
+        model.eval()
+        halo_model.eval()
+        with torch.no_grad():
+            train_loss_lst.append(train_loss.detach().numpy())
+            val_clf_out, centroids = halo_model(torch.tensor(X_valid_feat).float())
+            val_loss,val_clf_outlogits=criterion_clf(val_clf_out.detach().float().squeeze(), torch.tensor(Y_valid).squeeze(),centroids, centroid_targets)
+
+            val_loss=val_loss.detach().numpy()
+            valid_loss_lst.append(val_loss)
+            test_clf_out, centroids = halo_model(torch.tensor(X_test_feat).float())
+            test_loss, test_logits=criterion_clf(test_clf_out.detach().float().squeeze(), torch.tensor(Y_test).squeeze(),centroids, centroid_targets)
+
+            test_loss=test_loss.detach().numpy()
+            test_loss_lst.append(test_loss)
+            logging.info(f"Epoch={epoch}\t Batch={batch_idx}\t train_loss={train_loss_lst[-1]}\t valid_loss={valid_loss_lst[-1]}\t test_loss={test_loss_lst[-1]}")
+
+        if early_stopper.step(valid_loss_lst[-1], model):
+            logging.info("Early stopping triggered.")
+            early_stopper.restore_best_weights(model)
+            break
     
-def train_classifier_unbalanced(model, X_train_feat, Y_train, X_valid_feat, Y_valid, X_test_feat, Y_test, lr=1e-4, epochs=15,batch_size=int(1e4)):
+    gamma = torch.nn.functional.softplus(criterion_clf.gamma).item()
+    abstain_bias = criterion_clf.abstain_bias
+    return model, train_loss_lst, valid_loss_lst, test_loss_lst,None, (halo_model,gamma,abstain_bias)
+
+def train_classifier_unbalanced(model: nn.Module, X_train_feat: list[list[float]], Y_train: list[float], X_valid_feat: list[list[float]], Y_valid: list[float], X_test_feat: list[list[float]], Y_test: list[float], lr: float = 1e-4, epochs: int = 15, batch_size: int = int(1e4)):
     sampler = BalancedBatchSampler(Y_train, batch_size=batch_size)
     dataset = BinaryClassificationDataset(X_train_feat, Y_train)  
     # for batch_idx, (X_batch, y_reg) in enumerate(train_loader):
     #     logging.info(f"Batch {batch_idx}: X_batch shape: {X_batch.shape}, y_reg shape: {y_reg.shape}")
     model.train()
-    batch_size, train_loss_lst, valid_loss_lst, test_loss_lst = len(Y_train)//5, [], [], []
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    batch_size, train_loss_lst, valid_loss_lst, test_loss_lst = len(Y_train)//5, [], [], []    
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)    
     criterion_clf =F.nll_loss
+
     early_stopper = EarlyStopping(patience=5)
     for epoch in tqdm(range(epochs)):
+        correct,total=0,0
         train_loader = DataLoader(dataset, batch_sampler=sampler)
         for batch_idx, (X_batch, y_reg) in enumerate(train_loader):
+            total += y_reg.size(0)
             optimizer.zero_grad()
-            clf_out= model(torch.tensor(X_batch).float())                     
-            train_loss= criterion_clf(clf_out.float(), torch.tensor(y_reg).long())               
+            clf_out= model(torch.tensor(X_batch).float())   
+            train_loss= criterion_clf(clf_out.float(), torch.tensor(y_reg).long())
+            predicted = clf_out.argmax(dim=-1) 
+            correct += predicted.eq(y_reg).sum().item()
             if epochs>(epoch+1):
                 train_loss.backward()
                 optimizer.step()
-
+        # logging.info(f"Epoch={epoch}\t Train Accuracy={correct/total:.4f}") 
+        model.eval()
         with torch.no_grad():
             train_loss_lst.append(train_loss.detach().numpy())
             val_clf_out = model(torch.tensor(X_valid_feat).float())
-            # val_clf_out=val_clf_out.argmax(dim=-1)            
-            valid_loss_lst.append(criterion_clf(val_clf_out.detach().float().squeeze(), torch.tensor(Y_valid).squeeze()).detach().numpy())
+            val_loss=criterion_clf(val_clf_out.detach().float().squeeze(), torch.tensor(Y_valid).squeeze())
+
+            val_loss=val_loss.detach().numpy()
+            valid_loss_lst.append(val_loss)
             test_clf_out = model(torch.tensor(X_test_feat).float())
-            # test_clf_out=test_clf_out.argmax(dim=-1)
-            test_loss_lst.append(criterion_clf(test_clf_out.detach().float().squeeze(), torch.tensor(Y_test).squeeze()).detach().numpy())
+            test_loss=criterion_clf(test_clf_out.detach().float().squeeze(), torch.tensor(Y_test).squeeze())
+
+            test_loss=test_loss.detach().numpy()
+            test_loss_lst.append(test_loss)
             logging.info(f"Epoch={epoch}\t Batch={batch_idx}\t train_loss={train_loss_lst[-1]}\t valid_loss={valid_loss_lst[-1]}\t test_loss={test_loss_lst[-1]}")
 
         if early_stopper.step(valid_loss_lst[-1], model):
@@ -284,7 +349,7 @@ def train_classifier_unbalanced(model, X_train_feat, Y_train, X_valid_feat, Y_va
 
 
 class MultiTaskMLP(nn.Module):
-    def __init__(self, input_dim, num_classes, hidden_dims=[128, 64]):
+    def __init__(self, input_dim: int, num_classes: int, hidden_dims: list[int] = [128, 64]):
         super(MultiTaskMLP, self).__init__()
         self.activation=nn.ReLU()
         # self.activation=nn.GELU()
@@ -303,7 +368,7 @@ class MultiTaskMLP(nn.Module):
         
         self.cls_pre_head = nn.Linear(hidden_dims[-1], hidden_dims[-1]//2)  
         self.cls_head = nn.Linear(hidden_dims[-1]//2, num_classes)  # Multi-class classification
-    def forward(self, x,y):
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
         z_x = self.trunk(x)
         z_y = self.trunk(y)
 
@@ -317,14 +382,14 @@ class MultiTaskMLP(nn.Module):
 
         return reg_out, cls_logits, cls_pred
 
-    def predict(self, x,y):
+    def predict(self, x: torch.Tensor, y: torch.Tensor):
         reg_out, cls_logits, cls_pred = self.forward(torch.tensor(x).float(),torch.tensor(y).float())
         cls_pred=cls_pred.argmax(dim=-1) 
         return reg_out.detach().squeeze(1).numpy(),cls_pred
 
 
 class MLPHead(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_dims=[128], dropout=0.2):
+    def __init__(self, in_dim: int, out_dim: int, hidden_dims: list[int] = [128], dropout: float = 0.2):
         super().__init__()
         layers = []
         d = in_dim
@@ -336,11 +401,11 @@ class MLPHead(nn.Module):
         layers.append(nn.Linear(d, out_dim))
         self.net = nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 class MultiTaskMLP(nn.Module):
-    def __init__(self, input_dim, num_classes,hidden_dims=[32]):
+    def __init__(self, input_dim: int, num_classes: int, hidden_dims: list[int] = [32]):
         super().__init__()
 
         # Shared trunk
@@ -355,7 +420,7 @@ class MultiTaskMLP(nn.Module):
         self.reg_head = MLPHead(128, 1)
         self.cls_head = MLPHead(128, num_classes)
 
-    def forward(self, x, task=None):
+    def forward(self, x: torch.Tensor, task: str = None):
         z = self.trunk(x)
         if task == "reg":
             reg_out= self.reg_head(z)
@@ -367,7 +432,7 @@ class MultiTaskMLP(nn.Module):
         else:
             # default: return both
             return self.reg_head(z).sigmoid(), torch.log_softmax(self.cls_head(z),dim=-1)
-    def predict(self, x,task=None):        
+    def predict(self, x: torch.Tensor, task: str = None):        
         out= self.forward(torch.tensor(x).float(),task)
         if task == "cls":
             out=out.argmax(dim=-1) 
@@ -387,8 +452,8 @@ class URLLoss(nn.Module):
         return total_loss
 
 
-def train_multihead_unbalanced(model, reg_X_train_feat, reg_Y_train, reg_X_valid_feat, reg_Y_valid, reg_X_test_feat, reg_Y_test,
-                                cls_X_train_feat, cls_Y_train, cls_X_valid_feat, cls_Y_valid, cls_X_test_feat, cls_Y_test, lr=1e-4, epochs=15,batch_size=int(1e4),use_URL_Loss=False):
+def train_multihead_unbalanced(model: nn.Module, reg_X_train_feat: list[list[float]], reg_Y_train: list[float], reg_X_valid_feat: list[list[float]], reg_Y_valid: list[float], reg_X_test_feat: list[list[float]], reg_Y_test: list[float],
+                                cls_X_train_feat: list[list[float]], cls_Y_train: list[float], cls_X_valid_feat: list[list[float]], cls_Y_valid: list[float], cls_X_test_feat: list[list[float]], cls_Y_test: list[float], lr: float = 1e-4, epochs: int = 15, batch_size: int = int(1e4), use_URL_Loss: bool = False):
     sampler = BalancedRegClsBatchSampler(reg_Y_train,cls_Y_train, batch_size=batch_size)
     dataset = MultiTaskDataset(reg_X_train_feat,cls_X_train_feat, reg_Y_train,cls_Y_train)  
     model.train()
@@ -453,9 +518,9 @@ def train_multihead_unbalanced(model, reg_X_train_feat, reg_Y_train, reg_X_valid
             break
     return model,train_loss_lst,train_loss_clf_lst,valid_loss_lst,valid_loss_clf_lst, test_loss_lst,test_loss_clf_lst, mean_loss_lst 
 
-def train_multihead_v2(model, X_train_feat_reg, Y_train_reg, X_valid_feat_reg, Y_valid_reg, X_test_feat_reg, Y_test_reg,
-                           X_train_feat_clf, Y_train_clf, X_valid_feat_clf, Y_valid_clf, X_test_feat_clf, Y_test_clf, lr=1e-4, epochs=15,
-                    num_classes=3, w_reg=0.5, w_cls=0.5):
+def train_multihead_v2(model: nn.Module, X_train_feat_reg: list[list[float]], Y_train_reg: list[float], X_valid_feat_reg: list[list[float]], Y_valid_reg: list[float], X_test_feat_reg: list[list[float]], Y_test_reg: list[float],
+                           X_train_feat_clf: list[list[float]], Y_train_clf: list[float], X_valid_feat_clf: list[list[float]], Y_valid_clf: list[float], X_test_feat_clf: list[list[float]], Y_test_clf: list[float], lr: float = 1e-4, epochs: int = 15,
+                    num_classes: int = 3, w_reg: float = 0.5, w_cls: float = 0.5):
     batch_size, train_loss_lst, valid_loss_lst, test_loss_lst, mean_loss_lst = 5000, [], [], [], []
     train_loss_clf_lst,valid_loss_clf_lst, test_loss_clf_lst=[],[],[]
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -507,7 +572,7 @@ def train_multihead_v2(model, X_train_feat_reg, Y_train_reg, X_valid_feat_reg, Y
     return model,train_loss_lst,train_loss_clf_lst,valid_loss_lst,valid_loss_clf_lst, test_loss_lst,test_loss_clf_lst, mean_loss_lst 
 
 
-def train_multihead_v0(model, epochs=100):
+def train_multihead_v0(model: nn.Module, epochs: int = 100):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion_reg = nn.MSELoss()
     criterion_cls = nn.CrossEntropyLoss()
@@ -533,6 +598,6 @@ def train_multihead_v0(model, epochs=100):
         optimizer.step()
 
 if __name__ == '__main__':
-    model = MultiTaskMLP(input_dim=100, num_classes=2, hidden_dims=[1024, 256, 32])
+    model = MultiTaskMLP(input_dim=2, num_classes=2, hidden_dims=[2, 2, 2])
     train_multihead_v0(model, 100)
 

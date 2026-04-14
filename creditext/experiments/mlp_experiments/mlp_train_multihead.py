@@ -15,8 +15,7 @@ def mlp_train_multihead(args) -> None:
     setup_logging(f"{args.logs_out_path}/{run_file_name}.log",logging.INFO,logging.INFO)    
     logging.info(f"args={args}")
     # setup_logging(f"{run_file_name}.log",logging.INFO,logging.INFO)    
-    run_file_name=f"{args.plots_out_path}/{run_file_name}"
-    
+    run_file_name=f"{args.plots_out_path}/{run_file_name}"    
     ############## Load  training data and split ###############
     reg_X_train, reg_y_train, reg_X_valid, reg_y_valid, reg_X_test, reg_y_test,reg_X_train_feat, reg_X_valid_feat, reg_X_test_feat=DQR.load_run_embeddings(args)
     clf_X_train, clf_y_train, clf_X_valid, clf_y_valid, clf_X_test, clf_y_test,clf_X_train_feat, clf_X_valid_feat, clf_X_test_feat=DomainRel.load_run_embeddings(args)   
@@ -66,13 +65,13 @@ if __name__ == '__main__':
     parser.add_argument("--dqr_path", type=str, default=str(root + "/data/dqr"),help="dqr dataset path")
     parser.add_argument("--embed_type", type=str, default="text",
                         choices=["text", "domainName", "GNN_GAT", "TFIDF", "PASTEL"], help="domains embedding technique")
-    parser.add_argument("--emb_model", type=str, default="embeddingTE3L",
+    parser.add_argument("--emb_model", type=str, default="embeddinggemma-300m",
                         choices=["embeddingQwen3-8B", "embeddingQwen3-0.6B", "embeddinggemma-300m", "embeddingTE3L",
                                  "IPTC_Topic_emb"],help="LLM embedding model")
     parser.add_argument("--batch_size", type=int, default=4000,help="training batch size")
     parser.add_argument("--test_valid_size", type=float, default=0.4,help="ratio of test and vaild sets")
     parser.add_argument("--emb_dim", type=int, default=256,help="embedding size")
-    parser.add_argument("--original_emb_dim", type=int, default=1024,help="The original embedding model dim size")
+    parser.add_argument("--original_emb_dim", type=int, default=256,help="The original embedding model dim size")
     parser.add_argument("--max_iter", type=int, default=200,help="MLP regressor max iteration count")
     parser.add_argument("--lr", type=float, default=1e-4,help="learning rate")
     parser.add_argument("--epochs", type=int,default=200, help="# training epochs")  
@@ -81,8 +80,8 @@ if __name__ == '__main__':
     parser.add_argument("--runs", type=int, default=1,help="# training runs")
     parser.add_argument("--gnn_encoder",   default="text", choices=["RNI","text"],help="append GNN node embedding intialization")
     parser.add_argument("--use_gnn_emb", action='store_false',help="append GNN embedding")
-    parser.add_argument("--agg_text_emb", action='store_false', help="aggregate montly text embeddings")
-    parser.add_argument("--agg_month_emb",action='store_false', help="aggregate montly GNN embeddings")
+    parser.add_argument("--agg_text_emb", action='store_true', help="aggregate montly text embeddings")
+    parser.add_argument("--agg_month_emb",action='store_true', help="aggregate montly GNN embeddings")
     parser.add_argument("--agg_function", type=str, default="avg",choices=["avg","cat"], help="aggregate function")
     parser.add_argument("--filter_by_GNN_nodes", action='store_false',help="filter by domains has GNN embeddings")
     parser.add_argument("--num_classes", type=int, default=2,help="# classifcation classes for Multihead model")
