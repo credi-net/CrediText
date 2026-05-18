@@ -1,0 +1,1 @@
+safe_bertopic/ctfidf.safetensors filter=lfs diff=lfs merge=lfs -text
