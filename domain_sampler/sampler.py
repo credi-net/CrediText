@@ -1,6 +1,7 @@
 import pandas as pd
 import re
 import random
+import torch
 import numpy as np
 from trafilatura import extract
 import nltk
@@ -30,7 +31,11 @@ nltk.download('stopwords')
 
 class DomainSampler():
     # downloading the embedding model
-    embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cuda:0")
+    if torch.cuda.is_available():
+        embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
+                                              device="cuda:0")
+    else:
+        embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
     #loading the topic modeler
     topic_model = BERTopic.load("safe_bertopic", embedding_model=embedding_model)
     # getting the stop words to be used later
