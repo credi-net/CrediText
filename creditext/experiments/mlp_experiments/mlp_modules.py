@@ -13,7 +13,7 @@ import random
 import copy
 from sklearn.metrics import log_loss
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import Tensor, nn, tensor
 from samplers import BalancedBatchSampler, BinaryClassificationDataset,BalancedRegClsBatchSampler,MultiTaskDataset
 from halo import  HALOLoss,HALOModel
 # ----------------------------
@@ -164,8 +164,8 @@ class LabelPredictor(nn.Module):
         x = self.activation(x)
         x = self.out(x)
         return torch.log_softmax(x, dim=-1)
-    def predict(self, x: list[list]):
-        return self.forward(torch.tensor(x).float()).argmax(dim=-1) 
+    def predict(self, x: tensor):
+        return self.forward(x.float()).argmax(dim=-1) 
 class MLPRegressor(nn.Module):
     def __init__(self, input_size: int, hidden_layer_sizes: list[int]):
         super(MLPRegressor, self).__init__()

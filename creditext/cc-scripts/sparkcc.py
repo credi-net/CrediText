@@ -135,6 +135,12 @@ class CCSparkJob(object):
             action='store_true',
             help='Whether to filter_by_supported_languages or not',
         )
+        arg_parser.add_argument(
+            '--filter_by_3_min_max',
+            action='store_true',
+            help='Whether to filter_by_3_min_max or not',
+        )
+
 
         self.add_arguments(arg_parser)
         args = arg_parser.parse_args()

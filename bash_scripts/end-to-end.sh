@@ -47,11 +47,18 @@ else
       listing=$7
 fi
 
+if [ -z "$8" ]; then
+      useOffset=0
+else
+      useOffset=$8
+fi
+
 echo "cc_file_types= ${cc_file_types[@]}"
 echo "start_idx=$start_idx end_idx=$end_idx"
 echo "seed_list=$seed_list"
 echo "spark_table_name=$spark_table_name"
 echo "listing path=$listing"
+echo "useOffset=$useOffset"
 
 CRAWL_ARG="$1"
 
@@ -108,9 +115,15 @@ for data_type in  "${cc_file_types[@]}" ; do
          else
             rm -rf "$SCRATCH/spark-warehouse/warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}/" # Remove re-created directories before running
          fi
-         echo "$SCRIPT_DIR/run_extract_warc_html.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
-         "$SCRIPT_DIR/run_extract_warc_html.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
-         echo "warc_extract_html_table constructed for $CRAWL batch_${start_idx}_${end_idx}"
+         if [ "$useOffset" = "0" ]; then
+            echo "$SCRIPT_DIR/run_extract_warc_html.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
+            "$SCRIPT_DIR/run_extract_warc_html.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
+            echo "warc_extract_html_table constructed for $CRAWL batch_${start_idx}_${end_idx}"
+         else
+            echo "$SCRIPT_DIR/run_extract_warc_html byOffset.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
+            "$SCRIPT_DIR/run_extract_warc_html byOffset.sh" "$CRAWL" "warc_${spark_table_name}_${CRAWL_LowerCase//-/}_${start_idx}_${end_idx}" "$seed_list" "$start_idx" "$end_idx"
+            echo "warc_extract_html_byOffset_table constructed for $CRAWL batch_${start_idx}_${end_idx}"
+         fi
       elif [ "$data_type" = "cc-index-table" ]; then # collect content page wet-files from the CC Index (process only ~300 files )
          echo "#####################  run_filter_index @ $(date '+%Y-%m-%d %H:%M:%S') #####################"
          if [ -z "$SCRATCH" ]; then

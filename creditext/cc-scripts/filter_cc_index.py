@@ -282,21 +282,25 @@ class Filter_CC_Index_Job(CCSparkJob):
             )
             df = session.read.parquet(intermediate_output)
         df=df.dropDuplicates()
-        df = df.filter(df.warc_record_length >= 500)
-        w_desc = Window.partitionBy("url_host_name").orderBy(F.col("url_host_name").desc())
-        w_asc = Window.partitionBy("url_host_name").orderBy(F.col("url_host_name").asc())
-        df_low = (df
-                  .withColumn("rn", F.row_number().over(w_asc))
-                  .filter(F.col("rn") <= 3)
-                  .drop("rn")
-                  )
-        df_high = (df
-                   .withColumn("rn", F.row_number().over(w_desc))
-                   .filter(F.col("rn") <= 3)
-                   .drop("rn")
-                   )
-        df_final = df_low.union(df_high).distinct()
-        df_final = df_final.orderBy(F.col("url_host_name").asc(), F.col("warc_record_length").asc())
+        print(f"self.args.filter_by_3_min_max={self.args.filter_by_3_min_max}")
+        if self.args.filter_by_3_min_max:
+            df = df.filter(df.warc_record_length >= 500)
+            w_desc = Window.partitionBy("url_host_name").orderBy(F.col("url_host_name").desc())
+            w_asc = Window.partitionBy("url_host_name").orderBy(F.col("url_host_name").asc())
+            df_low = (df
+                    .withColumn("rn", F.row_number().over(w_asc))
+                    .filter(F.col("rn") <= 3)
+                    .drop("rn")
+                    )
+            df_high = (df
+                    .withColumn("rn", F.row_number().over(w_desc))
+                    .filter(F.col("rn") <= 3)
+                    .drop("rn")
+                    )
+            df_final = df_low.union(df_high).distinct()
+            df_final = df_final.orderBy(F.col("url_host_name").asc(), F.col("warc_record_length").asc())
+        else:
+            df_final=df
         # df_final.collect()
         # df_sorted_Domain_Name_counts = df_final.groupBy("Domain_Name").count().collect()
         df_final.coalesce(self.args.num_output_partitions).write.format(self.args.output_format).option(

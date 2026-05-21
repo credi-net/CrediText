@@ -39,7 +39,7 @@ class DomainRel(object):
                 elif gnn_encoder=="text":
                     file_path=f'{path}/gnn_embedding/{gnn_encoder}/{month}_binary_labelled_set_domain_from_text_embeddings_updated_balanced.parquet'
                     logging.info(f"GNN emb file path={file_path}")
-                    embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                    embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
             elif embed_type == "text":
                 embd_dict=DomainRel.load_emb_dict_from_parquet(embed_type, path, model_name, month,normalize=False,emb_dim=emb_dim, original_emb_dim=original_emb_dim)            
             if normalize:
@@ -110,7 +110,7 @@ class DomainRel(object):
                     embd_dict = pickle.load(f)
             elif model_name == "RoBERTa":
                 file_path=f"{path}/weak_content_emb_{month}2024_RoBERTa_768.parquet"
-                embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})                
+                embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})                
         elif embed_type == "domainName":
             with open(f'{path}/dqr_domainName_embeddingQwen3-0.6B_1024.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
@@ -122,12 +122,12 @@ class DomainRel(object):
                 # file_path=f"{path}/gnn_embedding/{gnn_encoder}_23032026/{month}_domainRel_gat-text_emb.parquet"
                 file_path=f"{path}/gnn_embedding/{gnn_encoder}_31032026/{month}_domainRel_gat-RNI_emb.parquet"
                 logging.info(f"GNN emb file path={file_path}")
-                embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})
+                embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})
             elif gnn_encoder=="text":
                 # file_path=f'{path}/gnn_embedding/{gnn_encoder}_15032026/{month}_binary_labelled_set_domain_from_text_embeddings.parquet'
                 file_path=f"{path}/gnn_embedding/{gnn_encoder}/Feb2026/{month}_binary_labelled_set_domain_from_text_embeddings_updated_balanced.parquet"
                 logging.info(f"GNN emb file path={file_path}")
-                embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
         elif embed_type == "FQDN":
             # fqdn_file_name="weaklabels_fqdn_features.pkl"
             fqdn_file_name="weaklabels_dec_domains_fqdn_features.pkl"
@@ -145,7 +145,7 @@ class DomainRel(object):
     def load_emb_dict_from_parquet(embed_type: str, path:str="../../../data", model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=8192,normalize:bool=False,original_emb_dim:int=1024,keep_content:str="all",keep_count:int=3):
         embd_dict=None
         if embed_type == "text":
-                embd_dict=search_parquet_duckdb(f'{path}/weak_content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet', col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                embd_dict=search_parquet_duckdb(f'{path}/weak_content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet', filter_by_col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
         elif embed_type == "GNN_GAT":
             with open(f'{path}/{month}_{target}_dqr_domain_rni_embeddings.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
@@ -193,7 +193,7 @@ class DomainRel(object):
         category_set=set([k for k,v in domain_rel_annotations_dict.items() if v==split_mode])
         splits_lst=[]
         for split in["train","val","test"]:
-            split_df=search_parquet_duckdb(f'{path}/all_splits/balanced/{split}_domains.parquet', col=None,q_domains=None,max_memory="8GB",schema=None)        
+            split_df=search_parquet_duckdb(f'{path}/all_splits/balanced/{split}_domains.parquet', filter_by_col=None,q_domains=None,max_memory="8GB",schema=None)        
             split_df['domain']=split_df['domain'].apply(lambda x: '.'.join(str(x).split('.')[::-1])) 
             splits_lst.append(split_df)
 
@@ -333,14 +333,14 @@ class DQR (object):
 
                 # file_path=f'{path}/gnn_embedding/{gnn_encoder}_23032026/{target}/{month}_dqr_gat-text_emb.parquet'  # 23 March 2026 version with gat RNI
                 file_path=f'{path}/gnn_embedding/{gnn_encoder}_31032026/{target}/{month}_dqr_gat-RNI_emb.parquet'
-                embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})
+                embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})
 
             elif gnn_encoder=="text":
                 # file_path=f'{path}/gnn_embedding/{gnn_encoder}_15032026/{target}/{month}_dqr_gat-text_emb.parquet' # Jan 2026 version with gat text emb
-                # embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})              
+                # embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'emb'})              
 
                 file_path=f'{path}/gnn_embedding/{gnn_encoder}_Feb2026/{target}/{month}_dqr_domain_gat_from_text_embeddings_updated.parquet' # Feb 2026 version with gat text emb  
-                embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})                    
+                embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})                    
 
             logging.info(f"GNN emb file path={file_path}")
 
@@ -438,7 +438,7 @@ class DQR (object):
                     with open(f'{path}/IP2Location_{target}_rni_embeddings.pkl', 'rb') as f:
                         gnn_embd_dict_PhishDataset_legit = pickle.load(f)
                 else:
-                    gnn_embd_dict_phishtank, gnn_embd_dict_URLhaus, gnn_embd_dict_PhishDataset_legit = load_agg_Nmonth_weaksupervision_emb_dict(
+                    gnn_embd_dict_phishtank, gnn_embd_dict_URLhaus, gnn_embd_dict_PhishDataset_legit = DQR.load_agg_Nmonth_weaksupervision_emb_dict(
                         embed_type, path, model_name, month_lst=["dec", "nov", "oct"], target=target, agg=agg)
 
                 ############# Append Emb #############
@@ -517,7 +517,7 @@ class DQR (object):
                         embd_dict = pickle.load(f)
                 elif gnn_encoder=="text":
                     file_path=f'{path}/gnn_embedding/text/{target}/{month}_dqr_domain_gat_from_text_embeddings_updated.parquet'
-                    embd_dict=search_parquet_duckdb(file_path, col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                    embd_dict=search_parquet_duckdb(file_path, filter_by_col=None,q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
 
             if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)
                 embd_dict={ k:v[0]['emb'] for k,v in embd_dict.items()}
@@ -608,17 +608,17 @@ class DQR (object):
         # if args.filter_by_GNN_nodes:   
         #     labeled_11k_df = labeled_11k_df[labeled_11k_df["domain"].isin(targets_nodes_df["domain_rev"])]
         ############### filter by the train/val/test domains ###################
-        test_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/test_regression_domains.parquet', col=None,q_domains=None,max_memory="8GB",schema=None)
+        test_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/test_regression_domains.parquet', filter_by_col=None,q_domains=None,max_memory="8GB",schema=None)
         test_domains_df['domain']=test_domains_df['domain'].apply(lambda x: '.'.join(str(x).split('.')[::-1]))
         filtered_test_df=labeled_11k_df[labeled_11k_df["domain"].isin(test_domains_df['domain'])]
         logging.info(f"test set lables count ={len(filtered_test_df),filtered_test_df[f"{args.dqr_target}_norm"].value_counts()}")
 
-        valid_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/val_regression_domains.parquet', col=None,q_domains=None,max_memory="8GB",schema=None)
+        valid_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/val_regression_domains.parquet', filter_by_col=None,q_domains=None,max_memory="8GB",schema=None)
         valid_domains_df['domain']=valid_domains_df['domain'].apply(lambda x: '.'.join(str(x).split('.')[::-1]))
         filtered_val_df=labeled_11k_df[labeled_11k_df["domain"].isin(valid_domains_df['domain'])]
         logging.info(f"val set lables count ={len(filtered_val_df),filtered_val_df[f"{args.dqr_target}_norm"].value_counts()}")
 
-        train_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/train_regression_domains.parquet', col=None,q_domains=None,max_memory="8GB",schema=None)
+        train_domains_df=search_parquet_duckdb(f'{args.dqr_path}/splits/train_regression_domains.parquet', filter_by_col=None,q_domains=None,max_memory="8GB",schema=None)
         train_domains_df['domain']=train_domains_df['domain'].apply(lambda x: '.'.join(str(x).split('.')[::-1]))
         filtered_train_df=labeled_11k_df[labeled_11k_df["domain"].isin(train_domains_df['domain'])]
         logging.info(f"train set lables count ={len(filtered_train_df),filtered_train_df[f"{args.dqr_target}_norm"].value_counts()}")
