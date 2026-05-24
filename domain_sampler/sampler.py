@@ -27,14 +27,6 @@ tqdm.pandas()
 
 
 class DomainSampler():
-    # downloading the embedding model
-    if torch.cuda.is_available():
-        embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
-                                              device="cuda:0")
-    else:
-        embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-    #loading the topic modeler
-    topic_model = BERTopic.load("safe_bertopic", embedding_model = embedding_model)
     # getting the stop words to be used later
     nltk.download('punkt')
     nltk.download('punkt_tab')
@@ -44,14 +36,24 @@ class DomainSampler():
         global_stop_words_set.update(stopwords.words(lang))
 
     def __init__(self, pop_size:int, confidence:float = 0.95, margin_error:float = 0.05,
-                  embeddings = None):
+                  embedding_model = None, embeddings:list[float] = []):
         self.pop_size = pop_size
         self.confidence = confidence
         self.margin_error = margin_error
         if not embeddings:
-            self.embeddings = None
+            self.embeddings = None #this value forces the modelr to use the default embedding model to generate the embeddings for topic modeling
         else:
             self.embeddings = np.array(embeddings)
+        # downloading the embedding model
+        self.embedding_model = embedding_model
+        if not self.embedding_model:
+            if torch.cuda.is_available():
+                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
+                                                    device="cuda:0")
+            else:
+                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+        #loading the topic modeler
+        self.topic_model = BERTopic.load("safe_bertopic", embedding_model = self.embedding_model)
 
     def get_min_sample_size(self)->int:
         """
@@ -147,7 +149,7 @@ class DomainSampler():
         """ 
         cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
         art_lens = [len(art.split()) for art in cleaned_articles]
-        topics, probs = topic_model.transform(cleaned_articles, embeddings = self.embeddings)
+        topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
         analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
         analysis_df = analysis_df.sort_values(by="article_word_num", ascending=True)
