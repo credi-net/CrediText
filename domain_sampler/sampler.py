@@ -37,6 +37,12 @@ class DomainSampler():
 
     def __init__(self, pop_size:int, confidence:float = 0.95, margin_error:float = 0.05,
                   embedding_model = None, embeddings:list[float] = []):
+        ''' Initializes the DomainSampler with population size, confidence level, margin of error, embedding model, and precomputed embeddings.
+        :param pop_size: Total number of individuals in the population
+        :param confidence: Confidence level (e.g., 0.95 for 95%) (optional)
+        :param margin_error: Acceptable margin of error (e.g., 0.05 for 5%) (optional)
+        :param embedding_model: The embedding model to use (optional)
+        :param embeddings: A list of precomputed embeddings to use for topic modeling (optional)'''
         self.pop_size = pop_size
         self.confidence = confidence
         self.margin_error = margin_error
