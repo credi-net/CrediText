@@ -37,17 +37,22 @@ class DomainSampler():
     else:
         embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
     #loading the topic modeler
-    topic_model = BERTopic.load("safe_bertopic", embedding_model=embedding_model)
+    topic_model = BERTopic.load("safe_bertopic", embedding_model = embedding_model)
     # getting the stop words to be used later
     global_stop_words_set = set()
     for lang in stopwords.fileids():
         global_stop_words_set.update(stopwords.words(lang))
 
-    def __init__(self, pop_size:int, confidence:float = 0.95, margin_error:float = 0.05):
+    def __init__(self, pop_size:int, confidence:float = 0.95, margin_error:float = 0.05,
+                  embeddings = None):
         self.pop_size = pop_size
         self.confidence = confidence
         self.margin_error = margin_error
-    
+        if not embeddings:
+            self.embeddings = None
+        else:
+            self.embeddings = np.array(embeddings)
+
     def get_min_sample_size(self)->int:
         """
         Calculates minimum sample size for a finite population.
@@ -142,7 +147,7 @@ class DomainSampler():
         """ 
         cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
         art_lens = [len(art.split()) for art in cleaned_articles]
-        topics, probs = topic_model.transform(cleaned_articles)
+        topics, probs = topic_model.transform(cleaned_articles, embeddings = self.embeddings)
         analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
         analysis_df = analysis_df.sort_values(by="article_word_num", ascending=True)
