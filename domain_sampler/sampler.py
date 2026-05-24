@@ -24,9 +24,6 @@ from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 
 tqdm.pandas()
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
 
 
 class DomainSampler():
@@ -39,6 +36,9 @@ class DomainSampler():
     #loading the topic modeler
     topic_model = BERTopic.load("safe_bertopic", embedding_model = embedding_model)
     # getting the stop words to be used later
+    nltk.download('punkt')
+    nltk.download('punkt_tab')
+    nltk.download('stopwords')
     global_stop_words_set = set()
     for lang in stopwords.fileids():
         global_stop_words_set.update(stopwords.words(lang))
