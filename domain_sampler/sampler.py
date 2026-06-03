@@ -35,10 +35,11 @@ class DomainSampler():
     for lang in stopwords.fileids():
         global_stop_words_set.update(stopwords.words(lang))
 
-    def __init__(self, pop_size:int, confidence:float = 0.95, margin_error:float = 0.05,
+    def __init__(self, pop_size:int, bert_model_path:str = "safe_bertopic", confidence:float = 0.95, margin_error:float = 0.05,
                   embedding_model = None, embeddings:list[float] = []):
         ''' Initializes the DomainSampler with population size, confidence level, margin of error, embedding model, and precomputed embeddings.
         :param pop_size: Total number of individuals in the population
+        :param bert_model_path: Path to the BERTopic model (optional)
         :param confidence: Confidence level (e.g., 0.95 for 95%) (optional)
         :param margin_error: Acceptable margin of error (e.g., 0.05 for 5%) (optional)
         :param embedding_model: The embedding model to use (optional)
@@ -59,7 +60,11 @@ class DomainSampler():
             else:
                 self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         #loading the topic modeler
-        self.topic_model = BERTopic.load("safe_bertopic", embedding_model = self.embedding_model)
+        try:
+            self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+            self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
+        except:
+            raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
 
     def get_min_sample_size(self)->int:
         """
@@ -153,13 +158,16 @@ class DomainSampler():
         :param urls: list fo the urls sample from limited population theory
         :param articles: list of articles HTML content
         """ 
+        # Validate that urls and articles have the same length
+        if len(urls) != len(articles):
+            raise ValueError(f"The number of URLs ({len(urls)}) must match the number of articles ({len(articles)})")
+        
         cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
         art_lens = [len(art.split()) for art in cleaned_articles]
         topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
         analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
         analysis_df = analysis_df.sort_values(by="article_word_num", ascending=True)
-
         # 2. Group by topic and aggregate the URLs into a list
         result_df = (
             analysis_df.groupby("topic")["url"]
