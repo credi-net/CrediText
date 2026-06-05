@@ -150,13 +150,14 @@ class DomainSampler():
                         "text":self.clean_text(soup.get_text(separator=" ", strip=True))})
         return articles_text
     
-    def topic_analysis(self, urls:list[str], articles:list)-> pd.DataFrame:
+    def topic_analysis(self, urls:list[str], articles:list, deep_analysis:bool=False)-> list[pd.DataFrame]:
         """
         Preprocesses the HTML content of articles from a domain and returns topic with their relative urls ordered by 
         the number of words of their corresponding article content.
 
         :param urls: list fo the urls sample from limited population theory
         :param articles: list of articles HTML content
+        :param deep_analysis: flag to indicate whether to perform deep analysis and get top 3 topic with their probabilities
         """ 
         # Validate that urls and articles have the same length
         if len(urls) != len(articles):
@@ -164,15 +165,31 @@ class DomainSampler():
         
         cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
         art_lens = [len(art.split()) for art in cleaned_articles]
-        topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
-        analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
+
+        if deep_analysis:
+            topic_distr, _ = self.topic_model.approximate_distribution(cleaned_articles,
+                                                        window=4, stride=1, use_embedding_model=True,
+                                                        embeddings=self.embeddings)
+            top_3_topics, top_3_probabs = [], []
+            for i, doc_distribution in enumerate(topic_distr):
+                top_3_indices = np.argsort(doc_distribution)[::-1][:3]
+                output_probabilities = [float(doc_distribution[topic_id]) for topic_id in top_3_indices]
+                top_3_topics.append(top_3_indices.tolist())
+                top_3_probabs.append(output_probabilities)
+            topics = [topics[0] for topics in top_3_topics]
+            probs = [probs[0] for probs in top_3_probabs]
+            analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs,
+                                            'top_3_topics': top_3_topics, 'top_3_probabs': top_3_probabs})
+        else:
+            topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
+            analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
         analysis_df = analysis_df.sort_values(by="article_word_num", ascending=True)
         # 2. Group by topic and aggregate the URLs into a list
         result_df = (
             analysis_df.groupby("topic")["url"]
             .apply(list)
-            .reset_index(name="ordered_urls"))
-        return result_df
+            .reset_index(name="ordered_urls"))        
+        return [analysis_df, result_df]
 
 
