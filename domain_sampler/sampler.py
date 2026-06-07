@@ -157,7 +157,8 @@ class DomainSampler():
 
         :param urls: list fo the urls sample from limited population theory
         :param articles: list of articles HTML content
-        :param deep_analysis: flag to indicate whether to perform deep analysis and get top 3 topic with their probabilities
+        :param deep_analysis: flag to indicate whether to perform deep analysis 
+        and get top 3 topic with their probabilities. However, you can't use pre-calculated embeddings with it.
         """ 
         # Validate that urls and articles have the same length
         if len(urls) != len(articles):
