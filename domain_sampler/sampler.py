@@ -88,7 +88,29 @@ class DomainSampler():
         n = n_0 / (1 + ((n_0 - 1) / pop_size))
 
         return math.ceil(n)
-    
+
+    def get_gaussian_weights(self, input_list: list)->np.ndarray:
+        """
+        Generates a list of Gaussian weights corresponding to the input list.
+        The weights peak at the center and decrease toward the edges.
+        """
+        n = len(input_list)
+        if n == 0:
+            return np.array([])
+            
+        # 1. Create linearly spaced points centered around 0
+        # Moving from -2 to 2 standard deviations captures ~95% of the curve
+        x = np.linspace(-2, 2, n)
+        
+        # 2. Calculate the Gaussian curve values (Standard Normal Distribution)
+        weights = np.exp(-0.5 * x**2)
+        
+        # 3. Normalize so all weights add up to 1.0 (highly recommended)
+        weights /= np.sum(weights)
+        
+        return weights
+
+  
     def clean_text(self, text: str, stop_words = global_stop_words_set):
         '''
         remove stop words, urls and numbers to prepare test for topic modeling
@@ -189,7 +211,6 @@ class DomainSampler():
         result_df = (
             analysis_df.groupby("topic")["url"]
             .apply(list)
-            .reset_index(name="ordered_urls"))        
+            .reset_index(name="ordered_urls")) 
+        result_df['url_weights'] = (1/len(analysis_df))*result_df.ordered_urls.apply(self.get_gaussian_weights)       
         return [analysis_df, result_df]
-
-
