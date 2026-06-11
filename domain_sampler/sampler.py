@@ -212,5 +212,5 @@ class DomainSampler():
             analysis_df.groupby("topic")["url"]
             .apply(list)
             .reset_index(name="ordered_urls")) 
-        result_df['url_weights'] = (1/len(analysis_df))*result_df.ordered_urls.apply(self.get_gaussian_weights)       
+        result_df['url_weights'] = (1/len(result_df))*result_df.ordered_urls.apply(self.get_gaussian_weights)       
         return [analysis_df, result_df]
