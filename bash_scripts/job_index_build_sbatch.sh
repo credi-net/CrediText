@@ -7,15 +7,21 @@ CRAWL=None
 # Month=Feb2025
 # Month=Jan2025
 # Month=Mar2025
-Month=Dec2024
+# Month=Dec2024
 # Month=Nov2024
-# Month=Oct2024
-# batch_size=10
-batch_size=30
+Month=Oct2024
 # echo sbatch ./run_in_batches_warc-index.sh $CRAWL $Month 270 300 $batch_size
-# sbatch ./run_in_batches_warc-index.sh $CRAWL $Month 270 300 $batch_size
+########## CC-Month ##########
+batch_size=5
+sbatch ./run_in_batches_warc-index.sh $CRAWL $Month 0 300 $batch_size
+
+############ Domain Rel #########
+# batch_size=30
 # sbatch ./run_in_batches_warc-index_domain_rel.sh $CRAWL $Month 0 300 $batch_size
-sbatch ./run_in_batches_warc-index_dqr.sh $CRAWL $Month 0 300 $batch_size
+
+######### DQR #########
+# batch_size=30
+# sbatch ./run_in_batches_warc-index_dqr.sh $CRAWL $Month 0 300 $batch_size
 
 
 # sbatch ./run_in_batches_warc-index.sh None Dec2024 0 300 5

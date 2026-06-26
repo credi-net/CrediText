@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=05:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/cc-index-build_job_%j.out
 #SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/cc-index-build_job_%j.err
 

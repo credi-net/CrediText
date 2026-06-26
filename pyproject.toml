@@ -34,10 +34,27 @@ dependencies = [
     "pyarrow",
     "huggingface-hub",
     "jsonpath_ng",
-    "vllm",
+    "llvmlite",
     "duckdb",
     "resiliparse",
-    "shap"
+    "shap",
+    "anyio==4.13.0",
+    "trafilatura==1.12.2",
+    "bertopic==0.17.4",
+    "h11==0.16.0",
+    "hdbscan==0.8.43",
+    "httpcore==1.0.9",
+    "httpx==0.28.1",
+    "llvmlite==0.47.0",
+    "networkx==3.4.2",
+    "nltk==3.9.4",
+    "numba==0.65.1",
+    "numpy==2.2.6",
+    "regex==2026.5.9",
+    "safetensors==0.7.0",
+    "sympy==1.14.0",
+    "tokenizers==0.22.2",
+    "umap-learn==0.5.12"
 ]
 
 [tool.flit.module]

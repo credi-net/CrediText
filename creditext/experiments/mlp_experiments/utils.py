@@ -26,9 +26,13 @@ from typing import Any
 import torch
 from itertools import zip_longest
 from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score as Recall,roc_auc_score as AUROC,average_precision_score as AUPRC
+from pathlib import Path
 
-def list_all_files(root_path: str, rgex: str = "*.pkl", recursive: bool = False):
-    return glob.glob(f'{root_path}/{rgex}', recursive=recursive)
+def list_all_files(root_path: str, regex: str = "*.pkl", recursive: bool = False):
+    if recursive:
+        return [str(p) for p in Path(root_path).rglob(regex)]
+    else: 
+        return glob.glob(f'{root_path}/{regex}', recursive=recursive)
 
 def normalize_embeddings(emb_dict: Dict[Any, list], norm_type: str = "min-max"):
     X=list(emb_dict.values())
@@ -310,14 +314,54 @@ def search_parquet_duckdb(f_path:str,q_domains:list,filter_by_col:str=None,proje
                 else:
                     res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]]
     return res
+def query_parquet_duckdb(SQL_Query:str,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4)):
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit='{max_memory}'")
+    con.execute(f"SET threads={threads}")
+    try:
+        result = con.execute(SQL_Query)
+    except Exception as e:
+        logging.error(f"Error occurred while executing SQL query:{e}\nSQL_Query={SQL_Query}")
+        raise
 
+    cols_map={name[0]:idx for idx,name in enumerate(result.description)}
+    res=[]
+    while True:
+        rows = result.fetchmany(int(batch_size))
+        if not rows:
+            break
+        for row in rows:
+            res.append([elem for elem in row])
+    res=pd.DataFrame(res,columns=cols_map.keys())
+    return res
 def write_domain_emb_parquet(rows: dict, directory_path: str, file_name: str):
+    '''rows format: {'domain':domains_lst, 'embeddings':[ [{"page":url,"emb":[float]}] ] }'''
     schema = pa.schema([
         ("domain", pa.string()),
         ("embeddings", pa.list_( pa.struct([
                 ("page", pa.string()),
                 ("emb", pa.list_(pa.float32()))
             ]) ))])    
+    table = pa.Table.from_pydict(rows, schema=schema)
+    table = table.sort_by("domain")
+    pq.write_table(table, f"{directory_path}/{file_name}",row_group_size=100,use_dictionary=["domain"])
+
+def write_domain_topics_parquet(rows: dict, directory_path: str, file_name: str):
+    '''rows format: {'domain':domains_lst, 'topics':[ [{"topic0_id":2,"topic0_name":"",topic0_prop:0.5, ..}'''
+    schema = pa.schema([
+        ("domain", pa.string()),
+        ("topics", pa.list_( pa.struct([
+                ("topic0_id", pa.int32()),
+                ("topic0_name", pa.string()),
+                ("topic0_prop", pa.float32()),
+                ("topic1_id", pa.int32()),
+                ("topic1_name", pa.string()),
+                ("topic1_prop", pa.float32()),
+                ("topic2_id", pa.int32()),
+                ("topic2_name", pa.string()),
+                ("topic2_prop", pa.float32()),
+                ("url", pa.string())                
+            ]) ))])  
     table = pa.Table.from_pydict(rows, schema=schema)
     table = table.sort_by("domain")
     pq.write_table(table, f"{directory_path}/{file_name}",row_group_size=100,use_dictionary=["domain"])

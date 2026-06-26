@@ -1,5 +1,5 @@
 import pandas as pd
-from pyspark.sql.types import IntegerType, StringType, StructField, StructType,ArrayType
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType,ArrayType, TimestampType
 from sparkcc import CCSparkJob
 # os.environ["PYSPARK_SUBMIT_ARGS"] = "--driver-memory MEM 4g"
 from urllib.parse import urljoin, urlparse
@@ -17,13 +17,15 @@ from io import BytesIO
 import pyarrow.parquet as pq
 from tempfile import SpooledTemporaryFile, TemporaryFile
 from pyspark.sql.functions import input_file_name
+import pyarrow.compute as pc
+import pyarrow as pa
 class Filter_CC_Index_Job(CCSparkJob):
     """Filter_CC_Index_Job .    """
     num_input_partitions = 64
     num_output_partitions = 4
     name = 'Filter_CC_Index_Job'
     cc_index_cols=['url_surtkey','url','url_host_name','url_host_tld','url_host_2nd_last_part','url_host_3rd_last_part','url_host_4th_last_part','url_host_5th_last_part','url_host_registry_suffix','url_host_registered_domain','url_host_private_suffix','url_host_private_domain','url_host_name_reversed','url_protocol','url_port','url_path','url_query','fetch_time','fetch_status','fetch_redirect','content_digest','content_mime_type','content_mime_detected','content_charset','content_languages','content_truncated','warc_filename','warc_record_offset','warc_record_length','warc_segment']
-    index_toread_cols=['url','url_host_name', 'content_languages', 'warc_filename','warc_record_offset','warc_record_length','warc_segment']
+    index_toread_cols=['url','url_host_name', 'content_languages', 'warc_filename','warc_record_offset','warc_record_length','warc_segment','fetch_time','fetch_status','fetch_redirect','content_mime_detected']
     output_schema = StructType(
         [StructField('FileName', StringType(), True),
          StructField('url', StringType(), True),
@@ -33,6 +35,10 @@ class Filter_CC_Index_Job(CCSparkJob):
          StructField('warc_record_offset', IntegerType(), True),
          StructField('warc_record_length', IntegerType(), True),
          StructField('warc_segment', StringType(), True),
+         StructField('fetch_time', TimestampType(), True),
+         StructField('fetch_status', IntegerType(), True),
+         StructField('fetch_redirect', StringType(), True),
+         StructField('content_mime_detected', StringType(), True)
          ]
     )
     parquet_records = None
@@ -193,11 +199,12 @@ class Filter_CC_Index_Job(CCSparkJob):
             print(f"parquet {uri.split("/")[-1]} -> batch idx={idx}")
             # print(f"#parquet_records={self.parquet_records.value}")
             # print(f"#records_processed={self.records_processed.value}")
+            batch = batch.set_column(batch.schema.get_field_index("fetch_time"),"fetch_time",pc.cast(batch.column("fetch_time"), pa.timestamp("us")))  # strip tz)
             chunk_df = batch.to_pandas()
             for row in chunk_df.itertuples():
                 for res in self.process_record(row):
                     self.parquet_records.add(1)
-                    url, url_host_name, content_languages, warc_filename, warc_record_offset, warc_record_length, warc_segment = res
+                    url, url_host_name, content_languages, warc_filename, warc_record_offset, warc_record_length, warc_segment,fetch_time,fetch_status,fetch_redirect,content_mime_detected= res
                     if url_host_name:
                         self.records_processed.add(1)
                         yield (file_name,) + res
@@ -208,7 +215,7 @@ class Filter_CC_Index_Job(CCSparkJob):
         self.parquet_credibench_records.add(1)
         if content_languages:
             content_languages_lst = content_languages.split(",")
-            url,url_host_name,warc_filename,warc_record_offset,warc_record_length, warc_segment = None, None, None, None, None, None
+            url,url_host_name,warc_filename,warc_record_offset,warc_record_length, warc_segment,fetch_time,fetch_status,fetch_redirect,content_mime_detected = None, None, None, None, None, None,None, None, None,None
             # print(f"self.args.filter_by_supported_languages={self.args.filter_by_supported_languages}")
             if not self.args.filter_by_supported_languages or (len(set(content_languages_lst) & set(self.supported_langs)) > 0):
                 url_host_name = record.url_host_name
@@ -218,10 +225,14 @@ class Filter_CC_Index_Job(CCSparkJob):
                     warc_record_offset = record.warc_record_offset
                     warc_record_length = record.warc_record_length
                     warc_segment = record.warc_segment
+                    fetch_time = record.fetch_time
+                    fetch_status = record.fetch_status
+                    fetch_redirect = record.fetch_redirect
+                    content_mime_detected = record.content_mime_detected
                 else:
                     url_host_name = None
-            yield (url,url_host_name,content_languages,warc_filename,warc_record_offset,warc_record_length, warc_segment)
-        return (None,None, None, None, None, None, None)
+            yield (url,url_host_name,content_languages,warc_filename,warc_record_offset,warc_record_length, warc_segment,fetch_time,fetch_status,fetch_redirect,content_mime_detected)
+        return (None,None, None, None, None, None, None,None, None, None,None)
 
     def init_accumulators(self, session):
         super(Filter_CC_Index_Job, self).init_accumulators(session)
