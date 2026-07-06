@@ -16,11 +16,15 @@ if __name__ == '__main__':
         # SQL_Query=f"SELECT url_host_name, count(url) FROM read_parquet('{parquet_file_path}') group by url_host_name order by count(url) desc"
         # SQL_Query=f"SELECT * FROM read_parquet('{parquet_file_path}') limit 10"
 
-        parquet_file_path=f"{base_path}/warc_warc_bysampledoffset_ccmain202451/warc_warc_bysampledoffset_ccmain202451_0_49/warc_warc_bysampledoffset_ccmain202451_0_49_gemma300m_emb.parquet"
-        SQL_Query=f"SELECT * FROM read_parquet('{parquet_file_path}') limit 10"
+        # parquet_file_path=f"{base_path}/warc_warc_bysampledoffset_ccmain202451/warc_warc_bysampledoffset_ccmain202451_0_49/warc_warc_bysampledoffset_ccmain202451_0_49_gemma300m_emb.parquet"
+        # SQL_Query=f"SELECT * FROM read_parquet('{parquet_file_path}') limit 10"
+        # res_df=query_parquet_duckdb(SQL_Query=SQL_Query)
+
+        parquet_file_path=f"{base_path}/CrediBench-WebContent-Dec2024/dec2024_wetcontent_0_199_paraphrase-multilingual-MiniLM-L12-v2_topics_top3.parquet"
+        SQL_Query=f"SELECT count(*) FROM read_parquet('{parquet_file_path}')"
         res_df=query_parquet_duckdb(SQL_Query=SQL_Query)
         
-        # print(res_df)
+        print(res_df)
 
         # ############### read courrpted parquet file and restore correctly written groups #############
         # from pyarrow.parquet import ParquetFile

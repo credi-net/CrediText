@@ -5,6 +5,7 @@ import numpy as np
 from creditext.utils.path import get_root_dir
 import torch
 from tqdm import tqdm
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPClassifier as  Sklearn_MLPClassifier
@@ -31,11 +32,15 @@ def write_testset_emb(run_file_name,X_test,X_test_feat):
         pickle.dump(test_set_emb_dict, file)
 def mlp_classifier(args) -> None:
     now = datetime.now()
+    day = now.strftime("%Y%m%d")
+    os.makedirs(f"{args.logs_out_path}/{day}", exist_ok=True)
+    os.makedirs(f"{args.plots_out_path}/{day}", exist_ok=True)
+
     iso_compact = now.strftime("%Y%m%dT%H%M%S")
-    run_file_name=f"DomainRel_{args.month}_{args.domainRel_target}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}_{args.split_mode}_{args.test_mode}_{args.fusion_mode}_{args.keep_content}-{args.keep_content_count}_{iso_compact}"
-    setup_logging(f"{args.logs_out_path}/{run_file_name}.log")          
+    run_file_name=f"DomainRel_{args.month}_{args.domainRel_target}_{args.sampled_content_version}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}_{args.split_mode}_{args.test_mode}_{args.fusion_mode}_{args.keep_content}-{args.keep_content_count}_{iso_compact}"
+    setup_logging(f"{args.logs_out_path}/{day}/{run_file_name}.log")          
     logging.info(f"args={args}")  
-    run_file_name=f"{args.plots_out_path}/{run_file_name}"
+    run_file_name=f"{args.plots_out_path}/{day}/{run_file_name}"
     ############################
     X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat=DomainRel.load_run_embeddings(args)
     ############## Save Test set Embeddings dict pickle #############
@@ -158,14 +163,15 @@ if __name__ == '__main__':
     parser.add_argument("--emb_model", type=str, default="embeddinggemma-300m",
                         choices=["Qwen3-Embedding-8B", "Qwen3-Embedding-0.6B", "embeddinggemma-300m", "TE3L","Qwen3-Embedding-8B-Q5_K_M",
                                  "IPTC_Topic_emb","RoBERTa"],help="LLM embedding model")
+    parser.add_argument("--sampled_content_version", type=str, default="min3-max3", choices=["min3-max3","sampled"])
     parser.add_argument("--batch_size", type=int, default=5000,help="training batch size")
     parser.add_argument("--test_valid_size", type=float, default=0.4,help="ratio of test and vaild sets")
     parser.add_argument("--emb_dim", type=int, default=256,help="embedding size")
-    parser.add_argument("--hidden_dim_multipler", type=float, default=0.5,help="hidden_dimision_size= input_dimision_size*hidden_dim_multipler")
-    parser.add_argument("--original_emb_dim", type=int, default=256,help="The original embedding model dim size")
+    parser.add_argument("--hidden_dim_multipler", type=float, default=2,help="hidden_dimision_size= input_dimision_size*hidden_dim_multipler")
+    parser.add_argument("--original_emb_dim", type=int, default=768,help="The original embedding model dim size")
     parser.add_argument("--max_iter", type=int, default=200,help="MLP regressor max iteration count")
-    parser.add_argument("--lr", type=float, default=1e-1,help="learning rate")
-    # parser.add_argument("--lr", type=float, default=5e-1,help="learning rate")
+    # parser.add_argument("--lr", type=float, default=1e-1,help="learning rate")
+    parser.add_argument("--lr", type=float, default=5e-1,help="learning rate")
     parser.add_argument("--epochs", type=int,default=500, help="# training epochs") 
     parser.add_argument("--plots_out_path", type=str, default=str(root + "/plots"),help="plots and results store path")
     parser.add_argument("--logs_out_path", type=str, default=str(root + "/logs"),help="logging path")
@@ -180,15 +186,15 @@ if __name__ == '__main__':
     parser.add_argument("--num_classes", type=int, default=2,help="# classifcation classes for Multihead model")
     parser.add_argument("--use_FQDN", action='store_true',help="use fqdn_features")
     parser.add_argument("--generate_weaksupervision_scores", action='store_true', help="generate weak supervision datasets scores")
-    parser.add_argument("--month", type=str, default="nov", choices=["oct", "nov", "dec"],help="CrediBench month snapshot")
+    parser.add_argument("--month", type=str, default="dec", choices=["oct", "nov", "dec"],help="CrediBench month snapshot")
     parser.add_argument("--library", type=str, default="pytorch", choices=["pytorch", "sklearn"],help="ML library to use")
     parser.add_argument("--split_mode", type=str, default="balanced", choices=["balanced", "phishing","malware","misinfo","general"],help="split mode for the dataset")
     parser.add_argument("--test_mode", type=str, default="credible-non", choices=["credible-non", "sub-category"],help="split mode for the dataset")
-    parser.add_argument("--fusion_mode", type=str, default="cat", choices=["avg","cat", "sum", "min", "max","mul","gated"],help="embedding fusion method")
+    parser.add_argument("--fusion_mode", type=str, default="avg", choices=["avg","cat", "sum", "min", "max","mul","gated"],help="embedding fusion method")
     parser.add_argument("--keep_content", type=str, default="all", choices=["all","longest", "shortest"],help="which content to keep for fusion")
     parser.add_argument("--keep_content_count", type=int, default=4, help="number of pages content to keep for fusion")
     parser.add_argument("--loss_fun", type=str, default="nl_loss", choices=["nl_loss", "halo"],help="the loss function to use for training the MLP regressor")
-    parser.add_argument("--transferability_test_month", type=str, default="oct", choices=["oct", "nov","dec"],help="transferabilty of the model to a new month test set")
+    parser.add_argument("--transferability_test_month", type=str, default="dec", choices=["oct", "nov","dec"],help="transferabilty of the model to a new month test set")
     args = parser.parse_args()
     mlp_classifier(args)
     

@@ -59,6 +59,7 @@ def build_warc_min_index_per_domain(ccmain,full_index_file_name):
     grouped_df.to_parquet(f"{base_path}/{ccmain}_warc_min_index.parquet", engine='pyarrow', compression='snappy',index=False)    
     grouped_df.to_csv(f"{base_path}/{ccmain}_warc_min_index.csv", header=True,index=None)    
 def build_labeled_dataset_warc_index(ccmain="ccmain202508"):
+    '''build index for DQR or Domain Rel datasets content'''
     dqr_domain_lst=DQR.get_domains_lst()
     dqr_warc_index_df=search_parquet_duckdb(f"{base_path}/{ccmain}_warc_min_index.parquet", col="Domain_Name",q_domains=dqr_domain_lst,max_memory="8GB",schema=None)
     dqr_warc_index_df.to_parquet(f"{base_path}/dqr_{ccmain}_warc_min_index.parquet", engine='pyarrow', compression='snappy',index=False)  
@@ -88,7 +89,7 @@ def write_index_file_order(ccmain,labeled_ds=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ccmain content merge")
-    parser.add_argument("--file_type", type=str, choices=['html','wet','warc','wat','index','index_sampled','infer'], default="index_sampled", help="type of file to merge")
+    parser.add_argument("--file_type", type=str, choices=['html','wet','warc','sampled_warc','wat','index','index_sampled','infer','topicModeling'], default="topicModeling", help="type of file to merge")
     parser.add_argument("--ccmain", type=str, default="ccmain202451", help="ccmain")
     parser.add_argument("--base_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/bash_scripts/spark-warehouse", help="base path")
     # parser.add_argument("--base_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/plots", help="base path")
@@ -130,6 +131,11 @@ if __name__ == "__main__":
     elif args.file_type=="index_sampled":
         mid_path=f"intermediate_sampled_offsets_{args.ccmain.split("ccmain")[-1]}"
         out_file_name=f"sampled_offsets_index_{args.ccmain}"
+    elif args.file_type=="topicModeling":
+        # mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"
+        # out_file_name=f"warc_bysampledoffset_topics_{args.ccmain}" 
+        mid_path=f"CrediBench-WebContent-Dec2024"
+        out_file_name=f"Dec2024_max6_topics"    
     elif args.file_type=="wet":
         mid_path=f"wet_content_table_{args.ccmain}"
         out_file_name=f"wet_content_table_{args.ccmain}"
@@ -137,7 +143,10 @@ if __name__ == "__main__":
         # mid_path=f"warc_content_table_{args.ccmain}"
         # out_file_name=f"warc_content_table_{args.ccmain}"
         mid_path=f"warc_domain_rel_warc_byoffset_{args.ccmain}"
-        out_file_name=f"warc_domain_rel_warc_byoffset_{args.ccmain}"        
+        out_file_name=f"warc_domain_rel_warc_byoffset_{args.ccmain}" 
+    elif args.file_type=="sampled_warc":
+        mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"
+        out_file_name=f"warc_warc_bysampledoffset_{args.ccmain}" 
 
     elif args.file_type=="infer":
         mid_path=None
@@ -150,13 +159,44 @@ if __name__ == "__main__":
             file_path_list=list_parquet_files(f"{mid_path}/{mid_path}",start_idx,end_idx,args.org_batch_size,[])
             full_index_file_name=f"{out_file_name}_{start_idx}_{end_idx}.parquet"
             merge_pyarrow(file_path_list,f"{base_path}/{full_index_file_name}")
-            # build_warc_min_index_per_domain(ccmain,full_index_file_name)
+            build_warc_min_index_per_domain(ccmain,full_index_file_name)
             # build_labeled_dataset_warc_index(ccmain=ccmain)
-            # write_index_file_order(ccmain=ccmain)
+            write_index_file_order(ccmain=ccmain)
             # write_index_file_order(ccmain=ccmain,labeled_ds="dqr")
         elif args.file_type=="index_sampled":
             file_path_list=list_all_files(f"{base_path}/{mid_path}", "*.parquet", recursive=False)
             merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}_{start_idx}_{end_idx}.parquet")
+        elif args.file_type=="topicModeling":
+            file_path_list=list_all_files(f"{base_path}/{mid_path}", "*paraphrase-multilingual-MiniLM-L12-v2_topics_top3.parquet", recursive=True)
+            merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}_{start_idx}_{end_idx}.parquet")
+        elif args.file_type=="sampled_warc":
+            file_path_list=list_all_files(f"{base_path}/{mid_path}", "part-00*.snappy.parquet", recursive=True)
+            file_path_list_dict={}
+            for elem in file_path_list:
+                key=elem.split("/")[-2]
+                if key in file_path_list_dict:
+                    file_path_list_dict[key].append(elem)
+                else:
+                    file_path_list_dict[key]=[elem]
+            domain_buckets_map_dict={}
+            for k,v in file_path_list_dict.items()[0:2]:
+                out_file_path=f"{base_path}/{k}/{k}.parquet"
+                merge_pyarrow(v,out_file_path)
+                file_idx=k.split("_")[-2]
+                domains_lst_df = duckdb.query(f"""SELECT distinct url_host_name as Domain_Name FROM '{out_file_path}'""").df()
+                for domain in domains_lst_df["Domain_Name"].tolist():
+                    if domain in domain_buckets_map_dict:
+                        domain_buckets_map_dict[domain].append(file_idx)
+                    else:
+                        domain_buckets_map_dict[domain]=[file_idx]         
+
+                # for f in v:
+                #     if os.path.exists(f):
+                #         os.remove(f)
+            domain_buckets_map_df=pd.DataFrame(list(domain_buckets_map_dict.items()), columns=['Domain_Name', 'Buckets'])
+            domain_buckets_map_df.to_parquet(f'{args.base_path}/{mid_path}_domain_buckets_map.parquet', engine='pyarrow', compression='snappy')
+
+
         elif args.file_type=="infer":
             file_path_list=list_parquet_files(f"{out_file_name}/",start_idx,end_idx,args.org_batch_size,[],match_regex=f"{out_file_name.split('_')[0]}*.parquet",nested_folders=False)
             merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}/{out_file_name}.parquet")

@@ -54,6 +54,12 @@ cd bash_scripts
 e.g. 
 ./end-to-end.sh  CC-Crawls/Dec2024.txt 0 10  [cc-index-table] ../data/Dec2024/Dec2024_domains.csv dec2024_cc_index_table
 ```
+### Merge Build Min Ordered Files Offset 
+Merge Index files and build ordered min offset CSV 
+```sh
+cd CrediText/creditext/dataset_extraction/
+python buld_merge_index_parquet.py --file_type=index_sampled --ccmain=202451
+```
 ### Extract Montly domain's cc-text content
 
 ```sh
@@ -105,6 +111,13 @@ uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf
 uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf_files_start_idx=0 --hf_files_end_idx=10 --parquet_batch_size=100000 --emb_batch_size=5000 --emb_dim=256 --parquet_start_batch_idx=0 --local_dir=<your_extracted_content_parquet_files_ path>
 ```
 ______________________________________________________________________
+
+### Topic Modeling 
+ ```sh
+cd CrediText/creditext/dataset_extraction/
+bash sbatch_topic_modeling_jobs.sh <start_idx> <end_idx>  <task>
+```
+__________________________________________________________________
 
 ### Running MLP Experiments
 #### DQR regression experiments

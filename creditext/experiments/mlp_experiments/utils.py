@@ -284,13 +284,19 @@ def search_parquet_content(path:str="../../../data/Dec2024/gnn_random_v0", parqu
 def search_parquet_duckdb(f_path:str,q_domains:list,filter_by_col:str=None,projection_cols:list[str]=None,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4),schema:dict={'key':'domain','val':'emb'},keep_emb_frist_elem:int =None):
     con = duckdb.connect()
     con.execute(f"SET memory_limit='{max_memory}'")
-    con.execute(f"SET threads={threads}")
+    con.execute(f"SET threads={threads}")    
     if  not q_domains or len(q_domains)==0:
         query=f"SELECT {'*' if projection_cols is None else ",".join(projection_cols)} FROM read_parquet('{f_path}')"
         result = con.execute(query)
     else:
-        query=f"SELECT {'*' if projection_cols is None else ",".join(projection_cols)}  FROM read_parquet('{f_path}') WHERE {filter_by_col} IN ?"
-        result = con.execute(query, [list(q_domains)])    
+        ################## using inner join for fast filtering ############
+        con.register("domain_list_tbl", pd.DataFrame({"domain": list(q_domains)}))
+        query=f"""SELECT {'*' if projection_cols is None else ",".join(projection_cols)}  FROM read_parquet('{f_path}') b
+        SEMI JOIN domain_list_tbl l ON b.domain = l.domain"""
+        result = con.execute(query)    
+        ################ search by list of doamins as paramter ###########
+        # "WHERE {filter_by_col} IN ?""
+        # result = con.execute(query, [list(q_domains)])    
 
     cols_map={name[0]:idx for idx,name in enumerate(result.description)}
     if schema is None:
@@ -304,14 +310,18 @@ def search_parquet_duckdb(f_path:str,q_domains:list,filter_by_col:str=None,proje
         res=pd.DataFrame(res,columns=cols_map.keys())
     else:
         res={}
+        fetch_counter=1
         while True:
             rows = result.fetchmany(int(batch_size))
+            print(f"fetch_counter={(fetch_counter-1)*len(rows)+fetch_counter}")
+            fetch_counter+=1
             if not rows:
                 break
-            for row in rows:
-                if keep_emb_frist_elem is not None:
+            if keep_emb_frist_elem is not None:
+                for row in rows:                
                     res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]][0][keep_emb_frist_elem] ## first doc emb
-                else:
+            else:
+                for row in rows:                
                     res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]]
     return res
 def query_parquet_duckdb(SQL_Query:str,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4)):

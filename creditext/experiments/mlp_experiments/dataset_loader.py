@@ -142,14 +142,15 @@ class DomainRel(object):
             embd_dict=normalize_embeddings(embd_dict)
         return embd_dict
     @staticmethod
-    def load_emb_dict_from_parquet(embed_type: str, path:str="../../../data", model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=8192,normalize:bool=False,original_emb_dim:int=1024,keep_content:str="all",keep_count:int=3):
+    def load_emb_dict_from_parquet(embed_type: str, path:str="../../../data", model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=8192,normalize:bool=False,original_emb_dim:int=1024,keep_content:str="all",keep_count:int=3,sampled_content_version="" ):
         embd_dict=None
         if embed_type == "text":
-                embd_dict=search_parquet_duckdb(f'{path}/weak_content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet', filter_by_col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                embd_dict=search_parquet_duckdb(f'{path}/weak_{sampled_content_version}content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet', filter_by_col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
         elif embed_type == "GNN_GAT":
             with open(f'{path}/{month}_{target}_dqr_domain_rni_embeddings.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
 
+        # aggregate web pages embedding per domain
         if embed_type!="text" or keep_content=="all":
             if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)                
                 if embed_type=="text":
@@ -230,15 +231,17 @@ class DomainRel(object):
         if args.agg_text_emb:
             month_emb_dict = DomainRel.load_agg_Nmonth_emb_dict("text",args.domainRel_gnn_emb_path,model_name=args.emb_model, agg=args.agg_function,gnn_encoder=args.gnn_encoder,month_lst=agg_months_dict[args.month],emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim)
         elif args.embed_type not in ["FQDN"]:
-            month_emb_dict = DomainRel.load_emb_dict_from_parquet(args.embed_type, args.domainRel_text_emb_path, args.emb_model, args.month,normalize=False,emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim,keep_content=args.keep_content,keep_count=args.keep_content_count)
+            sampled_content_version= "" if args.sampled_content_version == "min3-max3" else f"{args.sampled_content_version}_"
+            month_emb_dict = DomainRel.load_emb_dict_from_parquet(args.embed_type, args.domainRel_text_emb_path, args.emb_model, args.month,normalize=False,emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim,keep_content=args.keep_content,keep_count=args.keep_content_count,sampled_content_version=sampled_content_version)
 
         weaklabeles_df = pd.read_csv(f"{args.domainRel_path}/weaklabels.csv")
         weaklabeles_df = weaklabeles_df[weaklabeles_df["domain"].isin(full_emb_dict)]
         weaklabeles_df = weaklabeles_df.reset_index(drop=True)
         text_emb_dict={}
-        text_emb_dict.update(month_emb_dict)
-        # text_emb_dict.update({k:v for k,v in full_emb_dict.items() if k not in month_emb_dict})
-        text_emb_dict.update({k:v for k,v in full_emb_dict.items() })
+        ############# load full domains embedding ########
+        text_emb_dict.update(full_emb_dict)
+        ############# update full embedding with month embedding ########
+        text_emb_dict.update({k:v for k,v in month_emb_dict.items() })
         acc_lst,f1_lst=[],[]
         ############### filter by the GNN graph node splits ###################
         gnn_emb_dict = None
