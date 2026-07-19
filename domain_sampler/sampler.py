@@ -22,6 +22,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from bertopic.representation import KeyBERTInspired
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
+from huggingface_hub import snapshot_download
 
 tqdm.pandas()
 
@@ -53,19 +54,36 @@ class DomainSampler():
             self.embeddings = np.array(embeddings)
         # downloading the embedding model
         self.embedding_model = embedding_model
-        if not self.embedding_model:
-            if torch.cuda.is_available():
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
-                                                    device="cuda:0")
-            else:
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        #loading the topic modeler
+
         try:
+            bert_model_path = "new_safe_bertopic"
+            if not self.embedding_model:
+                if torch.cuda.is_available():
+                    self.embedding_model = SentenceTransformer("google/embeddinggemma-300m",
+                                                    device="cuda:0") #the old used paraphrase-multilingual-MiniLM-L12-v2
+                else:
+                    self.embedding_model = SentenceTransformer("google/embeddinggemma-300m")
+                #loading the topic modeler
+            snapshot_download("Sulum82/BigBERTopic", local_dir=bert_model_path, local_dir_use_symlinks=False)
             self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
             self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
-            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic
+            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic            
         except:
-            raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
+            bert_model_path = "safe_bertopic"
+            try:
+                if not self.embedding_model:
+                    if torch.cuda.is_available():
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
+                                                    device="cuda:0") 
+                    else:
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+                #loading the topic modeler                
+                print(f"can't get the latest model, Loading BERTopic model from path: {bert_model_path}...")
+                self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+                self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
+                self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic
+            except:
+                raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
         """
