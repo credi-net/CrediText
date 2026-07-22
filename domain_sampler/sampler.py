@@ -6,6 +6,7 @@ import numpy as np
 from trafilatura import extract
 import nltk
 import json
+import ast
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
@@ -66,8 +67,6 @@ class DomainSampler():
                 #loading the topic modeler
             snapshot_download("Sulum82/BigBERTopic", local_dir=bert_model_path, local_dir_use_symlinks=False)
             self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
-            self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
-            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic            
         except:
             bert_model_path = "safe_bertopic"
             try:
@@ -80,10 +79,12 @@ class DomainSampler():
                 #loading the topic modeler                
                 print(f"can't get the latest model, Loading BERTopic model from path: {bert_model_path}...")
                 self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
-                self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
-                self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic
             except:
                 raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
+        print(f"loading topic information and embedding: ...")
+        self.topic_representations = pd.read_excel(bert_model_path+"/topic_info.xlsx") #shows the representative words per topic
+        self.topic_embeddings = self.topic_representations.embedding.progress_apply(ast.literal_eval).to_list()
+        self.topic_ids = self.topic_representations.Topic.to_list()
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
         """
@@ -239,7 +240,7 @@ class DomainSampler():
         """
         Predicts the topics based on cosine similarity for each embedding based on the pre-trained BERTopic model.
 
-        :param input_embeddings: A list of embeddings for which to predict topics
+        :param input_embeddings: A list of embeddings for which to predict topics ordered as in self.topic_ids
         :return: A list of predicted topic similarity scores corresponding to the input embeddings
         """
         # 1. Compute dot product between matrix and vector -> shape (10,)
