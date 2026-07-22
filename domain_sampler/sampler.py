@@ -22,6 +22,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from bertopic.representation import KeyBERTInspired
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
+from huggingface_hub import snapshot_download
 
 tqdm.pandas()
 
@@ -53,18 +54,36 @@ class DomainSampler():
             self.embeddings = np.array(embeddings)
         # downloading the embedding model
         self.embedding_model = embedding_model
-        if not self.embedding_model:
-            if torch.cuda.is_available():
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
-                                                    device="cuda:0")
-            else:
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        #loading the topic modeler
+
         try:
+            bert_model_path = "new_safe_bertopic"
+            if not self.embedding_model:
+                if torch.cuda.is_available():
+                    self.embedding_model = SentenceTransformer("google/embeddinggemma-300m",
+                                                    device="cuda:0") #the old used paraphrase-multilingual-MiniLM-L12-v2
+                else:
+                    self.embedding_model = SentenceTransformer("google/embeddinggemma-300m")
+                #loading the topic modeler
+            snapshot_download("Sulum82/BigBERTopic", local_dir=bert_model_path, local_dir_use_symlinks=False)
             self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
             self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
+            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic            
         except:
-            raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
+            bert_model_path = "safe_bertopic"
+            try:
+                if not self.embedding_model:
+                    if torch.cuda.is_available():
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
+                                                    device="cuda:0") 
+                    else:
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+                #loading the topic modeler                
+                print(f"can't get the latest model, Loading BERTopic model from path: {bert_model_path}...")
+                self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+                self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
+                self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic
+            except:
+                raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
         """
@@ -88,7 +107,31 @@ class DomainSampler():
         n = n_0 / (1 + ((n_0 - 1) / pop_size))
 
         return math.ceil(n)
-    
+
+    def get_gaussian_weights(self, input_list: list, art_num: int)->np.ndarray:
+        """
+        Generates a list of Gaussian weights corresponding to the input list.
+        The weights peak at the center and decrease toward the edges.
+        """
+        n = len(input_list)
+        if n == 0:
+            return np.array([])
+            
+        # 1. Create linearly spaced points centered around 0
+        # Moving from -2 to 2 standard deviations captures ~95% of the curve
+        x = np.linspace(-2, 2, n)
+        
+        # 2. Calculate the Gaussian curve values (Standard Normal Distribution)
+        weights = np.exp(-0.5 * x**2)
+        
+        # 3. Normalize so all weights add up to 1.0 (highly recommended)
+        weights /= np.sum(weights)
+        
+        # normalize weights by articles per topic relevant to the total number of articles
+        weights *= (n / art_num)
+        return weights
+
+  
     def clean_text(self, text: str, stop_words = global_stop_words_set):
         '''
         remove stop words, urls and numbers to prepare test for topic modeling
@@ -189,7 +232,26 @@ class DomainSampler():
         result_df = (
             analysis_df.groupby("topic")["url"]
             .apply(list)
-            .reset_index(name="ordered_urls"))        
+            .reset_index(name="ordered_urls")) 
+        result_df['url_gaussian_weights'] = result_df.ordered_urls.apply(lambda x: self.get_gaussian_weights(x, len(analysis_df)))       
         return [analysis_df, result_df]
+    def get_topic_sim_based_on_embeddings(self, input_embeddings:np.ndarray)->np.ndarray:
+        """
+        Predicts the topics based on cosine similarity for each embedding based on the pre-trained BERTopic model.
 
+        :param input_embeddings: A list of embeddings for which to predict topics
+        :return: A list of predicted topic similarity scores corresponding to the input embeddings
+        """
+        # 1. Compute dot product between matrix and vector -> shape (10,)
+        dot_product = np.dot(self.topic_embeddings, input_embeddings)
 
+        # 2. Compute L2 norm (magnitude) of the single vector -> scalar
+        norm_vector = np.linalg.norm(input_embeddings)
+
+        # 3. Compute L2 norm of each row in the matrix -> shape (10,)
+        norm_matrix = np.linalg.norm(input_embeddings, axis=1)
+
+        # 4. Divide dot product by the product of the norms
+        cosine_sim = dot_product / (norm_vector * norm_matrix)
+
+        return cosine_sim
