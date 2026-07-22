@@ -6,7 +6,7 @@ import numpy as np
 from trafilatura import extract
 import nltk
 import json
-import ast
+#import ast
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
@@ -83,7 +83,7 @@ class DomainSampler():
                 raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
         print(f"loading topic information and embedding: ...")
         self.topic_representations = pd.read_excel(bert_model_path+"/topic_info.xlsx") #shows the representative words per topic
-        self.topic_embeddings = self.topic_representations.embedding.progress_apply(ast.literal_eval).to_list()
+        self.topic_embeddings = self.topic_representations.embedding.progress_apply(lambda x: np.fromstring(x.strip("[]"),sep=' ')).to_list()
         self.topic_ids = self.topic_representations.Topic.to_list()
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
