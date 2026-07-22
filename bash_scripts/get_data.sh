@@ -134,15 +134,15 @@ for data_type in  "${cc_file_types[@]}" ; do
       echo "$listing_content" >>"$all_listing_content_path"
   fi    
 
-  echo "Downloading sample ${data_type} file..."
-  # make sample fetch non-fatal so we reach the main loop even if it 503s
-  file="$(gzip -dc "$listing" | head -1 || true)"
-  if [ -n "$file" ]; then
-    full_path="$DATA_DIR/$file"
-    mkdir -p "$(dirname "$full_path")"
-    ( cd "$(dirname "$full_path")" && wget -q --timestamping "$BASE_URL/$file" ) || \
-      echo "[WARN] sample $data_type fetch failed; continuing"
-  fi
+  # echo "Downloading sample ${data_type} file..."
+  # # make sample fetch non-fatal so we reach the main loop even if it 503s
+  # file="$(gzip -dc "$listing" | head -1 || true)"
+  # if [ -n "$file" ]; then
+  #   full_path="$DATA_DIR/$file"
+  #   mkdir -p "$(dirname "$full_path")"
+  #   ( cd "$(dirname "$full_path")" && wget -q --timestamping "$BASE_URL/$file" ) || \
+  #     echo "[WARN] sample $data_type fetch failed; continuing"
+  # fi
 
   input="$INPUT_DIR/all_${data_type}_${CRAWL}.txt"
   echo "All ${data_type} files of ${CRAWL}: $input"

@@ -1,5 +1,5 @@
-# halo.py
-
+# halo Loss and Model Implementation
+# https://pisoni.ai/posts/halo/
 import math
 import torch
 import torch.nn as nn

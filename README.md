@@ -50,11 +50,17 @@ source .venv/bin/activate
 Extract month doamins and thier corssponding WET Files for parallel and ordered content extraction
 ```sh
 cd bash_scripts
-./end-to-end.sh  <Month> <start_idx> <end_idx> [cc-index-table] <seed_domains_list.csv>
+./end-to-end.sh  <Month> <start_idx> <end_idx> [cc-index-table] <seed_domains_list.csv> <out_files_prefix>
 e.g. 
-./end-to-end.sh  CC-Crawls/Dec2024.txt 0 10  [cc-index-table] ../data/Dec2024/Dec2024_domains.csv
+./end-to-end.sh  CC-Crawls/Dec2024.txt 0 10  [cc-index-table] ../data/Dec2024/Dec2024_domains.csv dec2024_cc_index_table
 ```
-### Extract Montly domain's text content
+### Merge Build Min Ordered Files Offset 
+Merge Index files and build ordered min offset CSV 
+```sh
+cd CrediText/creditext/dataset_extraction/
+python buld_merge_index_parquet.py --file_type=index_sampled --ccmain=202451
+```
+### Extract Montly domain's cc-text content
 
 ```sh
 cd bash_scripts
@@ -63,6 +69,20 @@ e.g.
 bash end-to-end.sh  CC-Crawls/Feb2025.txt 0 10 [wet] ../data/Dec2024/Dec2024_domains.csv content_ext_table spark-warehouse/creditext_ccmain202451_wetFilesOrder.txt
 ```
 This will generate parquet files per batch under \`$SCRATCH/spark-warehouse/\<spark_table_name>_batch_ccmain202451_\<start_idx>\_\<end_idx>
+
+### Extract Montly domain's cc-html content
+
+```sh
+cd bash_scripts
+bash end-to-end.sh <Month> <start_idx> <end_idx> [warc] <seed_domains_list> <temp_spark_table_name> <WetFilesOrder> byoffset(optional)
+e.g. 
+bash end-to-end.sh CC-Crawls/Feb2025.txt 0 10 [wet] Feb2025_domains.csv warc_content_ext_table creditext_ccmain202451_wetFilesOrder.txt
+
+# use offest to filter each job list of files to only those exist in the seed_domains_list(parquet file contains each domain warc_filename)
+bash end-to-end.sh CC-Crawls/Dec2024.txt 0 10 [warc] ccmain202451_sampled_eng_400.parquet domain_rel_warc_byoffset_table ccmain202451_sampled_eng_400.txt byoffset
+```
+- This will generate parquet files per batch under \`$SCRATCH/spark-warehouse/\<spark_table_name>_batch_ccmain202451_\<start_idx>\_\<end_idx>
+- The offest is optinally used to filter the seed domains list given as parquet file of  domains and thier content warc files. This filter avoids processing all warc files in each job.
 
 ### Merging the extracted Content
 
@@ -91,6 +111,13 @@ uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf
 uv run python creditext/content_embbeding/generate_content_embedding.py.py  --hf_files_start_idx=0 --hf_files_end_idx=10 --parquet_batch_size=100000 --emb_batch_size=5000 --emb_dim=256 --parquet_start_batch_idx=0 --local_dir=<your_extracted_content_parquet_files_ path>
 ```
 ______________________________________________________________________
+
+### Topic Modeling 
+ ```sh
+cd CrediText/creditext/dataset_extraction/
+bash sbatch_topic_modeling_jobs.sh <start_idx> <end_idx>  <task>
+```
+__________________________________________________________________
 
 ### Running MLP Experiments
 #### DQR regression experiments
