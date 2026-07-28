@@ -11,6 +11,7 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 #import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 #import seaborn as sns
 from sentence_transformers import SentenceTransformer
 #from datetime import datetime
@@ -82,8 +83,8 @@ class DomainSampler():
             except:
                 raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
         print(f"loading topic information and embedding: ...")
-        self.topic_representations = pd.read_excel(bert_model_path+"/topic_info.xlsx") #shows the representative words per topic
-        self.topic_embeddings = self.topic_representations.embedding.progress_apply(lambda x: np.fromstring(x.strip("[]"),sep=' ')).to_list()
+        self.topic_representations = pd.read_csv(bert_model_path+"/topic_info.csv") #shows the representative words per topic
+        self.topic_embeddings = self.topic_representations.embedding.progress_apply(lambda x:np.fromstring(x.strip('[').strip(']'), dtype=float, sep=" "))
         self.topic_ids = self.topic_representations.Topic.to_list()
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
@@ -243,16 +244,6 @@ class DomainSampler():
         :param input_embeddings: A list of embeddings for which to predict topics ordered as in self.topic_ids
         :return: A list of predicted topic similarity scores corresponding to the input embeddings
         """
-        # 1. Compute dot product between matrix and vector -> shape (10,)
-        dot_product = np.dot(self.topic_embeddings, input_embeddings)
-
-        # 2. Compute L2 norm (magnitude) of the single vector -> scalar
-        norm_vector = np.linalg.norm(input_embeddings)
-
-        # 3. Compute L2 norm of each row in the matrix -> shape (10,)
-        norm_matrix = np.linalg.norm(input_embeddings, axis=1)
-
-        # 4. Divide dot product by the product of the norms
-        cosine_sim = dot_product / (norm_vector * norm_matrix)
+        cosine_sim = cosine_similarity(self.topic_embeddings, input_embeddings)
 
         return cosine_sim
