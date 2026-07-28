@@ -244,10 +244,10 @@ class DomainSampler():
         :return: A list of predicted topic similarity scores corresponding to the input embeddings
         """
         # 1. Compute dot product between matrix and vector -> shape (10,)
-        dot_product = np.dot(self.topic_embeddings, input_embeddings)
+        dot_product = np.dot(self.topic_embeddings, input_embeddings.T)
 
         # 2. Compute L2 norm (magnitude) of the single vector -> scalar
-        norm_vector = np.linalg.norm(input_embeddings)
+        norm_vector = np.linalg.norm(input_embeddings, axis = 1)
 
         # 3. Compute L2 norm of each row in the matrix -> shape (10,)
         norm_matrix = np.linalg.norm(input_embeddings, axis=1)
