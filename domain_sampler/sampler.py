@@ -11,6 +11,7 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 #import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 #import seaborn as sns
 from sentence_transformers import SentenceTransformer
 #from datetime import datetime
@@ -243,16 +244,6 @@ class DomainSampler():
         :param input_embeddings: A list of embeddings for which to predict topics ordered as in self.topic_ids
         :return: A list of predicted topic similarity scores corresponding to the input embeddings
         """
-        # 1. Compute dot product between matrix and vector -> shape (10,)
-        dot_product = np.dot(self.topic_embeddings, input_embeddings.T)
-
-        # 2. Compute L2 norm (magnitude) of the single vector -> scalar
-        norm_vector = np.linalg.norm(input_embeddings, axis = 1)
-
-        # 3. Compute L2 norm of each row in the matrix -> shape (10,)
-        norm_matrix = np.linalg.norm(input_embeddings, axis=1)
-
-        # 4. Divide dot product by the product of the norms
-        cosine_sim = dot_product / (norm_vector * norm_matrix)
+        cosine_sim = cosine_similarity(self.topic_embeddings, input_embeddings)
 
         return cosine_sim
