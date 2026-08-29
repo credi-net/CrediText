@@ -89,6 +89,8 @@ class EarlyStopping:
         self.best_state = None
 
     def step(self, val_loss: float, model: object):
+        if not np.isfinite(val_loss):
+            raise ValueError(f"Validation loss must be finite, got {val_loss}.")
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
             self.counter = 0
@@ -99,6 +101,8 @@ class EarlyStopping:
             return self.counter >= self.patience
 
     def restore_best_weights(self, model: object):
+        if self.best_state is None:
+            raise RuntimeError("Cannot restore model weights before observing a finite validation loss.")
         model.load_state_dict(self.best_state)
 class Sklearn_EarlyStopping:
     def __init__(self, patience: int = 5, min_delta: float = 0.0):
@@ -570,6 +574,285 @@ def train_multihead_v2(model: nn.Module, X_train_feat_reg: list[list[float]], Y_
             early_stopper.restore_best_weights(model)
             break
     return model,train_loss_lst,train_loss_clf_lst,valid_loss_lst,valid_loss_clf_lst, test_loss_lst,test_loss_clf_lst, mean_loss_lst 
+
+
+class CrediGrainMultiTaskMLP(nn.Module):
+    def __init__(self, input_dim: int, head_dims: dict[str, int], hidden_dims: list[int] = [256, 128], dropout: float = 0.0):
+        super().__init__()
+        if input_dim <= 0:
+            raise ValueError("input_dim must be positive")
+        for head_name, head_dim in head_dims.items():
+            if head_dim <= 0:
+                raise ValueError(f"Head {head_name} has invalid dim={head_dim}")
+
+        layers=[]
+        prev=input_dim
+        for hidden in hidden_dims:
+            layers.append(nn.Linear(prev, hidden))
+            layers.append(nn.ReLU())
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
+            prev=hidden
+        self.trunk=nn.Sequential(*layers)
+
+        self.functional_head=nn.Linear(prev, head_dims["functional_category"])
+        self.cyber_head=nn.Linear(prev, head_dims["cybersecurity"])
+        self.epistemic_cat_head=(
+            nn.Linear(prev, head_dims["epistemic_reliability"])
+            if "epistemic_reliability" in head_dims else None
+        )
+        self.epistemic_bin_head=nn.Linear(prev, head_dims["epistemic_reliability.bin"])
+        self.epistemic_cts_head=nn.Linear(prev, 1)
+
+    def forward(self, x: torch.Tensor):
+        z=self.trunk(x)
+        outputs={
+            "functional_category":self.functional_head(z),
+            "cybersecurity":self.cyber_head(z),
+            "epistemic_reliability.bin":self.epistemic_bin_head(z),
+            "epistemic_reliability.cts":torch.sigmoid(self.epistemic_cts_head(z)).squeeze(1),
+        }
+        if self.epistemic_cat_head is not None:
+            outputs["epistemic_reliability"]=self.epistemic_cat_head(z)
+        return outputs
+
+    def predict(self, x: list[list[float]]):
+        self.eval()
+        with torch.no_grad():
+            logits=self.forward(torch.tensor(x).float())
+            predictions={
+                stream_name:torch.sigmoid(stream_logits).cpu().numpy()
+                for stream_name,stream_logits in logits.items()
+                if stream_name != "epistemic_reliability.cts"
+            }
+            predictions["epistemic_reliability.cts"]=logits["epistemic_reliability.cts"].cpu().numpy()
+            return predictions
+
+
+def masked_row_mean(loss_values: torch.Tensor, row_mask: torch.Tensor) -> torch.Tensor:
+    row_mask=row_mask.bool()
+    if row_mask.any():
+        return loss_values[row_mask].mean()
+    return torch.nan_to_num(loss_values).sum()*0.0
+
+
+def credigrain_classification_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    mode: str,
+    positive_counts: torch.Tensor,
+    negative_counts: torch.Tensor,
+) -> torch.Tensor:
+    positive_counts=positive_counts.clamp_min(1.0)
+    negative_counts=negative_counts.clamp_min(1.0)
+
+    if mode == "bce":
+        return F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    if mode == "positive_weights":
+        return F.binary_cross_entropy_with_logits(
+            logits,
+            targets,
+            reduction="none",
+            pos_weight=negative_counts/positive_counts,
+        )
+    if mode == "focal":
+        bce=F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        probability=torch.sigmoid(logits)
+        target_probability=targets*probability + (1.0-targets)*(1.0-probability)
+        return ((1.0-target_probability)**2)*bce
+    if mode == "balanced_softmax":
+        adjusted_logits=logits+torch.log(positive_counts/negative_counts)
+        return F.binary_cross_entropy_with_logits(adjusted_logits, targets, reduction="none")
+    raise ValueError(f"Unsupported CrediGrain classification loss mode: {mode}")
+
+
+def credigrain_multilabel_sample_weights(y_dict: dict, max_weight: float = 5.0) -> torch.Tensor:
+    classification_streams=[
+        stream_name
+        for stream_name in (
+            "functional_category",
+            "cybersecurity",
+            "epistemic_reliability",
+            "epistemic_reliability.bin",
+        )
+        if stream_name in y_dict and f"{stream_name}_mask" in y_dict
+    ]
+    sample_count=len(y_dict[classification_streams[0]])
+    sample_weights=torch.ones(sample_count, dtype=torch.float32)
+
+    for stream_name in classification_streams:
+        targets=torch.as_tensor(y_dict[stream_name], dtype=torch.float32)
+        mask=torch.as_tensor(y_dict[f"{stream_name}_mask"], dtype=torch.bool)
+        positives=targets.bool() & mask
+        positive_counts=positives.sum(dim=0).clamp_min(1).float()
+        class_weights=torch.sqrt(positive_counts.max()/positive_counts).clamp(max=max_weight)
+        stream_weights=torch.where(positives, class_weights.unsqueeze(0), 1.0).max(dim=1).values
+        sample_weights=torch.maximum(sample_weights, stream_weights)
+
+    return sample_weights
+
+
+def train_credigrain_multitask(
+    model: nn.Module,
+    X_train_feat: list[list[float]],
+    y_train: dict,
+    X_valid_feat: list[list[float]],
+    y_valid: dict,
+    lr: float = 1e-4,
+    epochs: int = 50,
+    batch_size: int = 1024,
+    head_weights: dict | None = None,
+    classification_loss_mode: str = "positive_weights",
+):
+    if head_weights is None:
+        head_weights={
+            "functional_category":1.0,
+            "cybersecurity":1.0,
+            "epistemic_reliability":1.0,
+            "reliability_score":1.0,
+            "epistemic_reliability.bin":0.5,
+            "epistemic_reliability.cts":0.5,
+        }
+
+    mae_loss=nn.L1Loss(reduction="none")
+    optimizer=torch.optim.Adam(model.parameters(), lr=lr)
+    early_stopper=EarlyStopping(patience=5)
+    classification_streams=[
+        stream_name
+        for stream_name in (
+            "functional_category",
+            "cybersecurity",
+            "epistemic_reliability",
+            "epistemic_reliability.bin",
+        )
+        if stream_name in y_train and f"{stream_name}_mask" in y_train
+    ]
+
+    def _to_tensors(X_feat: list[list[float]], y_dict: dict):
+        tensors={
+            "X":torch.tensor(X_feat).float(),
+            "epistemic_reliability.cts":torch.tensor(y_dict["epistemic_reliability.cts"]).float(),
+            "epistemic_reliability.cts_mask":torch.tensor(y_dict["epistemic_reliability.cts_mask"]).float(),
+        }
+        for stream_name in classification_streams:
+            tensors[stream_name]=torch.tensor(y_dict[stream_name]).float()
+            tensors[f"{stream_name}_mask"]=torch.tensor(y_dict[f"{stream_name}_mask"]).float()
+        return tensors
+
+    train_t=_to_tensors(X_train_feat, y_train)
+    valid_t=_to_tensors(X_valid_feat, y_valid)
+    sample_weights=credigrain_multilabel_sample_weights(y_train)
+    logging.info(
+        f"CrediGrain sampling=class_balanced_sqrt min_weight={sample_weights.min().item():.3f} "
+        f"mean_weight={sample_weights.mean().item():.3f} max_weight={sample_weights.max().item():.3f}"
+    )
+    class_counts={}
+    for stream_name in classification_streams:
+        stream_mask=train_t[f"{stream_name}_mask"].bool()
+        stream_targets=train_t[stream_name]
+        class_counts[stream_name]={
+            "positive":(stream_targets*stream_mask).sum(dim=0),
+            "negative":((1.0-stream_targets)*stream_mask).sum(dim=0),
+        }
+    logging.info(f"CrediGrain classification loss mode={classification_loss_mode}")
+
+    def _classification_loss(stream_name: str, logits: torch.Tensor, targets: torch.Tensor):
+        return credigrain_classification_loss(
+            logits,
+            targets,
+            classification_loss_mode,
+            class_counts[stream_name]["positive"],
+            class_counts[stream_name]["negative"],
+        )
+
+    def _compute_losses(batch_tensors: dict):
+        pred=model(batch_tensors["X"])
+        classification_losses={
+            stream_name:masked_row_mean(
+                _classification_loss(stream_name, pred[stream_name], batch_tensors[stream_name]),
+                batch_tensors[f"{stream_name}_mask"],
+            )
+            for stream_name in classification_streams
+        }
+        loss_rel_bin=classification_losses["epistemic_reliability.bin"]
+
+        rel_cts_mask=batch_tensors["epistemic_reliability.cts_mask"].bool()
+        loss_rel_cts=masked_row_mean(
+            mae_loss(pred["epistemic_reliability.cts"], batch_tensors["epistemic_reliability.cts"]),
+            rel_cts_mask,
+        )
+
+        loss_rel_score=head_weights["epistemic_reliability.bin"]*loss_rel_bin + head_weights["epistemic_reliability.cts"]*loss_rel_cts
+        total=sum(
+            head_weights[stream_name]*classification_losses[stream_name]
+            for stream_name in classification_streams
+            if stream_name != "epistemic_reliability.bin"
+        ) + head_weights["reliability_score"]*loss_rel_score
+        losses={
+            "total":total,
+            "epistemic_reliability.bin":loss_rel_bin,
+            "epistemic_reliability.cts":loss_rel_cts,
+            "reliability_score":loss_rel_score,
+        }
+        losses.update(classification_losses)
+        return losses
+
+    history={
+        "train_total":[],"valid_total":[],
+        "train_reliability_score":[],"valid_reliability_score":[],
+    }
+
+    train_count=train_t["X"].shape[0]
+    if train_count == 0:
+        raise ValueError("CrediGrain training set is empty.")
+
+    tracked_keys=["total", *classification_streams, "epistemic_reliability.cts", "reliability_score"]
+
+    for epoch in tqdm(range(epochs)):
+        model.train()
+        perm=torch.multinomial(sample_weights, train_count, replacement=True)
+        aggregate_train_losses={key:0.0 for key in tracked_keys}
+        seen_samples=0
+
+        for start_idx in range(0, train_count, batch_size):
+            batch_idx=perm[start_idx:start_idx+batch_size]
+            batch_tensors={k:v[batch_idx] for k,v in train_t.items()}
+            optimizer.zero_grad()
+            batch_losses=_compute_losses(batch_tensors)
+            batch_losses["total"].backward()
+            optimizer.step()
+
+            current_batch_size=batch_idx.shape[0]
+            seen_samples += current_batch_size
+            for key in tracked_keys:
+                aggregate_train_losses[key] += float(batch_losses[key].detach().cpu().numpy()) * current_batch_size
+
+        train_losses={
+            key:(aggregate_train_losses[key]/max(seen_samples,1))
+            for key in tracked_keys
+        }
+
+        model.eval()
+        with torch.no_grad():
+            valid_losses=_compute_losses(valid_t)
+
+            history["train_total"].append(float(train_losses["total"]))
+            history["valid_total"].append(float(valid_losses["total"].detach().cpu().numpy()))
+            history["train_reliability_score"].append(float(train_losses["reliability_score"]))
+            history["valid_reliability_score"].append(float(valid_losses["reliability_score"].detach().cpu().numpy()))
+
+        logging.info(
+            f"Epoch={epoch}\ttrain_total={history['train_total'][-1]:.6f}\t"
+            f"valid_total={history['valid_total'][-1]:.6f}\t"
+            f"valid_rel_score={history['valid_reliability_score'][-1]:.6f}"
+        )
+
+        if early_stopper.step(history["valid_total"][-1], model):
+            logging.info("Early stopping triggered.")
+            break
+
+    early_stopper.restore_best_weights(model)
+    return model, history
 
 
 def train_multihead_v0(model: nn.Module, epochs: int = 100):

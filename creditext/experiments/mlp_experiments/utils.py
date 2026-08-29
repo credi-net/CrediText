@@ -139,12 +139,13 @@ def fuse_1d_emb(row1:list,row2:list, fusion_mode:str="cat"):
         fused_emb = [a * b for a, b in zip_longest(row1, row2, fillvalue=1)]
     return fused_emb
 
-def plot_loss(train_loss:list[float], valid_loss:list[float], test_loss:list[float], mean_loss:list[float], out_file_path:str ="loss_plot.pdf",ylabel:str="MSE"):
+def plot_loss(train_loss:list[float], valid_loss:list[float], test_loss:list[float] | None, mean_loss:list[float] | None, out_file_path:str ="loss_plot.pdf",ylabel:str="MSE"):
     plt.figure(figsize=(5, 4))
     plt.rc('font', size=16)
     plt.plot(range(len(train_loss)), train_loss, label="train loss")
     plt.plot(range(len(train_loss)), valid_loss, label="validation loss")
-    plt.plot(range(len(train_loss)), test_loss, label="test loss")
+    if test_loss is not None:
+        plt.plot(range(len(train_loss)), test_loss, label="test loss")
     if mean_loss is not None and len(mean_loss)>0:
         plt.plot(range(len(train_loss)), mean_loss, label="mean loss")
     plt.xticks(range(0, len(train_loss) + 1, 1 if len(train_loss) <= 10 else len(train_loss) // 10))
@@ -217,6 +218,17 @@ def plot_regression_scatter(true: list[float], pred: list[float], out_file_path:
     plt.show()
 
 
+def absolute_error_summary(true: list[float], pred: list[float]):
+    true_values=np.asarray(true, dtype=float).reshape(-1)
+    pred_values=np.asarray(pred, dtype=float).reshape(-1)
+    if true_values.shape != pred_values.shape:
+        raise ValueError(f"True and predicted values must have the same length, got {len(true_values)} and {len(pred_values)}.")
+    absolute_errors=np.abs(true_values-pred_values)
+    if absolute_errors.size==0:
+        raise ValueError("Cannot summarize absolute errors for an empty evaluation set.")
+    return float(np.mean(absolute_errors)), float(np.min(absolute_errors)), float(np.max(absolute_errors))
+
+
 def eval(pred: list[float], true: list[float]):
     max(abs(x - y) for x, y in zip(true, pred))
     res_df = pd.DataFrame(zip(true, pred), columns=['true', 'pred'])
@@ -234,7 +246,7 @@ def eval(pred: list[float], true: list[float]):
     # logging.info(f"mse={mse}")
     r2 = r2_score(true, pred)
     # logging.info(f"r2={r2}")
-    mae = mean_absolute_error(true, pred)
+    mae, _, _ = absolute_error_summary(true, pred)
     true_mean = mean(true)
     mean_mae = mean_absolute_error(true, [true_mean for elem in true])
     # logging.info(f"MAE={mae}")
