@@ -22,7 +22,9 @@ from sklearn.feature_extraction.text import CountVectorizer
 from bertopic.representation import KeyBERTInspired
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
+from huggingface_hub import snapshot_download
 
+from sklearn.metrics.pairwise import cosine_similarity
 tqdm.pandas()
 
 
@@ -35,36 +37,30 @@ class DomainSampler():
     for lang in stopwords.fileids():
         global_stop_words_set.update(stopwords.words(lang))
 
-    def __init__(self, pop_size:int, bert_model_path:str = "safe_bertopic", confidence:float = 0.95, margin_error:float = 0.05,
+    def __init__(self, bert_model_path:str = "safe_bertopic", confidence:float = 0.95, margin_error:float = 0.05,
                   embedding_model = None, embeddings:list[float] = []):
         ''' Initializes the DomainSampler with population size, confidence level, margin of error, embedding model, and precomputed embeddings.
-        :param pop_size: Total number of individuals in the population
         :param bert_model_path: Path to the BERTopic model (optional)
         :param confidence: Confidence level (e.g., 0.95 for 95%) (optional)
         :param margin_error: Acceptable margin of error (e.g., 0.05 for 5%) (optional)
         :param embedding_model: The embedding model to use (optional)
         :param embeddings: A list of precomputed embeddings to use for topic modeling (optional)'''
-        self.pop_size = pop_size
         self.confidence = confidence
         self.margin_error = margin_error
+        self.bert_model_path=bert_model_path
         if not embeddings:
             self.embeddings = None #this value forces the modelr to use the default embedding model to generate the embeddings for topic modeling
         else:
             self.embeddings = np.array(embeddings)
         # downloading the embedding model
         self.embedding_model = embedding_model
-        if not self.embedding_model:
-            if torch.cuda.is_available():
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
-                                                    device="cuda:0")
-            else:
-                self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        #loading the topic modeler
+
         try:
-            self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+            self.topic_model = BERTopic.load(self.bert_model_path, embedding_model = self.embedding_model)
             self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
+            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic            
         except:
-            raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
+            raise ValueError(f"BERTopic model could not be loaded from the path: {self.bert_model_path}. Please check the path and try again.")
     @staticmethod
     def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
         """
@@ -88,7 +84,31 @@ class DomainSampler():
         n = n_0 / (1 + ((n_0 - 1) / pop_size))
 
         return math.ceil(n)
-    
+
+    def get_gaussian_weights(self, input_list: list, art_num: int)->np.ndarray:
+        """
+        Generates a list of Gaussian weights corresponding to the input list.
+        The weights peak at the center and decrease toward the edges.
+        """
+        n = len(input_list)
+        if n == 0:
+            return np.array([])
+            
+        # 1. Create linearly spaced points centered around 0
+        # Moving from -2 to 2 standard deviations captures ~95% of the curve
+        x = np.linspace(-2, 2, n)
+        
+        # 2. Calculate the Gaussian curve values (Standard Normal Distribution)
+        weights = np.exp(-0.5 * x**2)
+        
+        # 3. Normalize so all weights add up to 1.0 (highly recommended)
+        weights /= np.sum(weights)
+        
+        # normalize weights by articles per topic relevant to the total number of articles
+        weights *= (n / art_num)
+        return weights
+
+  
     def clean_text(self, text: str, stop_words = global_stop_words_set):
         '''
         remove stop words, urls and numbers to prepare test for topic modeling
@@ -119,10 +139,6 @@ class DomainSampler():
     def preprocess_html(self, articles:list)->list[dict]:
         """
         Preprocesses the HTML content of articles from a domain and returns all the info and cleaned text.
-
-        :param pop_size: Total number of individuals in the population
-        :param confidence: Confidence level (e.g., 0.95 for 95%)
-        :param margin_error: Acceptable margin of error (e.g., 0.05 for 5%)
         """        
         articles_text = []
         for response_html in tqdm(articles):
@@ -150,7 +166,7 @@ class DomainSampler():
                         "text":self.clean_text(soup.get_text(separator=" ", strip=True))})
         return articles_text
     
-    def topic_analysis(self, urls:list[str], articles:list, deep_analysis:bool=False)-> list[pd.DataFrame]:
+    def topic_analysis(self, urls:list[str], articles:list,embedings:list=None,deep_analysis:bool=False,is_html=True)-> list[pd.DataFrame]:
         """
         Preprocesses the HTML content of articles from a domain and returns topic with their relative urls ordered by 
         the number of words of their corresponding article content.
@@ -163,8 +179,11 @@ class DomainSampler():
         # Validate that urls and articles have the same length
         if len(urls) != len(articles):
             raise ValueError(f"The number of URLs ({len(urls)}) must match the number of articles ({len(articles)})")
-        
-        cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
+        if is_html:
+            cleaned_articles = [art['text'] for art in tqdm(self.preprocess_html(articles))]
+        else:
+            cleaned_articles=articles
+
         art_lens = [len(art.split()) for art in cleaned_articles]
 
         if deep_analysis:
@@ -181,6 +200,9 @@ class DomainSampler():
             analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs,
                                             'top_3_topics': top_3_topics, 'top_3_probabs': top_3_probabs})
         else:
+            if embedings:
+                # self.embeddings = np.array(embedings)
+                self.embeddings = np.array([elem[0:384] for elem in  embedings])
             topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
             analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
@@ -189,7 +211,59 @@ class DomainSampler():
         result_df = (
             analysis_df.groupby("topic")["url"]
             .apply(list)
-            .reset_index(name="ordered_urls"))        
+            .reset_index(name="ordered_urls")) 
+        result_df['url_gaussian_weights'] = result_df.ordered_urls.apply(lambda x: self.get_gaussian_weights(x, len(analysis_df)))       
         return [analysis_df, result_df]
+    def get_topic_sim_based_on_embeddings(self, input_embeddings:np.ndarray)->np.ndarray:
+        """
+        Predicts the topics based on cosine similarity for each embedding based on the pre-trained BERTopic model.
 
+        :param input_embeddings: A list of embeddings for which to predict topics
+        :return: A list of predicted topic similarity scores corresponding to the input embeddings
+        """
+        # 1. Compute dot product between matrix and vector -> shape (10,)
+        dot_product = np.dot(self.topic_embeddings, input_embeddings)
 
+        # 2. Compute L2 norm (magnitude) of the single vector -> scalar
+        norm_vector = np.linalg.norm(input_embeddings)
+
+        # 3. Compute L2 norm of each row in the matrix -> shape (10,)
+        norm_matrix = np.linalg.norm(input_embeddings, axis=1)
+
+        # 4. Divide dot product by the product of the norms
+        cosine_sim = dot_product / (norm_vector * norm_matrix)
+
+        return cosine_sim
+    def topic_analysis_cosin_sim(self,emb_lst:list,topk=3):
+        # Get topic info
+        if len(emb_lst)>0:
+            topic_info = self.topic_model.get_topic_info()
+            topic_names = dict(zip(topic_info['Topic'], topic_info['Name']))
+            embeddings = np.array([elem[0:384] for elem in  emb_lst])
+            # Get all topic probabilities using cosine similarity
+            topic_embeddings = self.topic_model.topic_embeddings_
+            similarities = cosine_similarity(embeddings, topic_embeddings)
+            exp_similarities = np.exp(similarities)
+            all_topic_probs = exp_similarities / exp_similarities.sum(axis=1, keepdims=True)
+
+            # print(f"Full distribution shape: {all_topic_probs.shape}")
+            # print(f"All probabilities:\n{all_topic_probs}")
+            # Get top 3 topics per document
+            results = []
+            for doc_idx, doc_probs in enumerate(all_topic_probs):
+                top_k_indices = np.argsort(doc_probs)[-topk:][::-1] 
+                top_k_probs= np.sort(doc_probs)[-topk:][::-1]
+                doc_topics=[]
+                # doc_topics.append(doc_idx)            
+                for rank, topic_id in enumerate(top_k_indices, 1):
+                    prob = doc_probs[topic_id]                
+                    name = topic_names.get(topic_id, "Unknown")                
+                    doc_topics.extend([topic_id,name,top_k_probs[rank-1]])
+                results.append(doc_topics)   
+            
+            titles=[]          
+            for i in range(0,topk):
+                titles.extend([f"topic{i}_id",f"topic{i}_name",f"topic{i}_prop"]) 
+            df = pd.DataFrame(results,columns=titles)
+            return df
+        return None

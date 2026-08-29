@@ -25,9 +25,14 @@ import shap
 from typing import Any
 import torch
 from itertools import zip_longest
+from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score as Recall,roc_auc_score as AUROC,average_precision_score as AUPRC
+from pathlib import Path
 
-def list_all_files(root_path: str, rgex: str = "*.pkl", recursive: bool = False):
-    return glob.glob(f'{root_path}/{rgex}', recursive=recursive)
+def list_all_files(root_path: str, regex: str = "*.pkl", recursive: bool = False):
+    if recursive:
+        return [str(p) for p in Path(root_path).rglob(regex)]
+    else: 
+        return glob.glob(f'{root_path}/{regex}', recursive=recursive)
 
 def normalize_embeddings(emb_dict: Dict[Any, list], norm_type: str = "min-max"):
     X=list(emb_dict.values())
@@ -288,16 +293,22 @@ def search_parquet_content(path:str="../../../data/Dec2024/gnn_random_v0", parqu
             emb_dict[str(batch['domain'][i])]=batch['embeddings'][i][0]['emb'].as_py() ## first doc emb
     return emb_dict
 
-def search_parquet_duckdb(f_path:str,col:str,q_domains:list,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4),schema:dict={'key':'domain','val':'emb'},keep_emb_frist_elem:int =None):
+def search_parquet_duckdb(f_path:str,q_domains:list,filter_by_col:str=None,projection_cols:list[str]=None,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4),schema:dict={'key':'domain','val':'emb'},keep_emb_frist_elem:int =None):
     con = duckdb.connect()
     con.execute(f"SET memory_limit='{max_memory}'")
-    con.execute(f"SET threads={threads}")
+    con.execute(f"SET threads={threads}")    
     if  not q_domains or len(q_domains)==0:
-        query=f"SELECT * FROM read_parquet('{f_path}')"
+        query=f"SELECT {'*' if projection_cols is None else ",".join(projection_cols)} FROM read_parquet('{f_path}')"
         result = con.execute(query)
     else:
-        query=f"SELECT * FROM read_parquet('{f_path}') WHERE {col} IN ?"
-        result = con.execute(query, [list(q_domains)])    
+        ################## using inner join for fast filtering ############
+        con.register("domain_list_tbl", pd.DataFrame({"domain": list(q_domains)}))
+        query=f"""SELECT {'*' if projection_cols is None else ",".join(projection_cols)}  FROM read_parquet('{f_path}') b
+        SEMI JOIN domain_list_tbl l ON b.domain = l.domain"""
+        result = con.execute(query)    
+        ################ search by list of doamins as paramter ###########
+        # "WHERE {filter_by_col} IN ?""
+        # result = con.execute(query, [list(q_domains)])    
 
     cols_map={name[0]:idx for idx,name in enumerate(result.description)}
     if schema is None:
@@ -311,24 +322,68 @@ def search_parquet_duckdb(f_path:str,col:str,q_domains:list,max_memory:str="4GB"
         res=pd.DataFrame(res,columns=cols_map.keys())
     else:
         res={}
+        fetch_counter=1
         while True:
             rows = result.fetchmany(int(batch_size))
+            print(f"fetch_counter={(fetch_counter-1)*len(rows)+fetch_counter}")
+            fetch_counter+=1
             if not rows:
                 break
-            for row in rows:
-                if keep_emb_frist_elem is not None:
+            if keep_emb_frist_elem is not None:
+                for row in rows:                
                     res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]][0][keep_emb_frist_elem] ## first doc emb
-                else:
+            else:
+                for row in rows:                
                     res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]]
     return res
+def query_parquet_duckdb(SQL_Query:str,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4)):
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit='{max_memory}'")
+    con.execute(f"SET threads={threads}")
+    try:
+        result = con.execute(SQL_Query)
+    except Exception as e:
+        logging.error(f"Error occurred while executing SQL query:{e}\nSQL_Query={SQL_Query}")
+        raise
 
+    cols_map={name[0]:idx for idx,name in enumerate(result.description)}
+    res=[]
+    while True:
+        rows = result.fetchmany(int(batch_size))
+        if not rows:
+            break
+        for row in rows:
+            res.append([elem for elem in row])
+    res=pd.DataFrame(res,columns=cols_map.keys())
+    return res
 def write_domain_emb_parquet(rows: dict, directory_path: str, file_name: str):
+    '''rows format: {'domain':domains_lst, 'embeddings':[ [{"page":url,"emb":[float]}] ] }'''
     schema = pa.schema([
         ("domain", pa.string()),
         ("embeddings", pa.list_( pa.struct([
                 ("page", pa.string()),
                 ("emb", pa.list_(pa.float32()))
             ]) ))])    
+    table = pa.Table.from_pydict(rows, schema=schema)
+    table = table.sort_by("domain")
+    pq.write_table(table, f"{directory_path}/{file_name}",row_group_size=100,use_dictionary=["domain"])
+
+def write_domain_topics_parquet(rows: dict, directory_path: str, file_name: str):
+    '''rows format: {'domain':domains_lst, 'topics':[ [{"topic0_id":2,"topic0_name":"",topic0_prop:0.5, ..}'''
+    schema = pa.schema([
+        ("domain", pa.string()),
+        ("topics", pa.list_( pa.struct([
+                ("topic0_id", pa.int32()),
+                ("topic0_name", pa.string()),
+                ("topic0_prop", pa.float32()),
+                ("topic1_id", pa.int32()),
+                ("topic1_name", pa.string()),
+                ("topic1_prop", pa.float32()),
+                ("topic2_id", pa.int32()),
+                ("topic2_name", pa.string()),
+                ("topic2_prop", pa.float32()),
+                ("url", pa.string())                
+            ]) ))])  
     table = pa.Table.from_pydict(rows, schema=schema)
     table = table.sort_by("domain")
     pq.write_table(table, f"{directory_path}/{file_name}",row_group_size=100,use_dictionary=["domain"])
@@ -355,31 +410,67 @@ def save_shaply_plots(model:object, X_train: list[list[Any]], X_test: list[list[
     # plt.savefig(f"{out_file_path}_shap_dependence_plot.pdf", format="pdf", bbox_inches='tight')
     # plt.close()
 
-    import torch
+def eval_binary_classification(pred: np.ndarray[np.int_], true: np.ndarray[np.int_])-> dict:
+    
+    accuracy = accuracy_score(true, pred)   
+    logging.info(f"Accuracy: {accuracy:.4f}")
 
-def expected_calibration_error(samples, true_labels, M=5):
-    # uniform binning approach with M number of bins
-    bin_boundaries = torch.linspace(0, 1, M + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    # get max probability per sample i (confidences) and the final predictions from these confidences
-    confidences, predicted_label = torch.max(samples, 1)
+    f1 = f1_score(true,pred, average='macro')    
+    logging.info(f"F1 score (macro): {f1:.4f}")
 
-    # get a boolean list of correct/false predictions
-    accuracies = predicted_label.eq(true_labels)
+    recall = Recall(true, pred)    
+    logging.info(f"Recall: {recall:.4f}")
 
-    ece = torch.zeros(1)
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        # determine if sample is in bin m (between bin lower & upper)
-        in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
-        # can calculate the empirical probability of a sample falling into bin m: (|Bm|/n)
-        prop_in_bin = in_bin.float().mean()
-        if prop_in_bin.item() > 0:
-            # get the accuracy of bin m: acc(Bm)
-            accuracy_in_bin = accuracies[in_bin].float().mean()
-            # get the average confidence of bin m: conf(Bm)
-            avg_confidence_in_bin = confidences[in_bin].mean()
-            # calculate |acc(Bm) - conf(Bm)| * (|Bm|/n) for bin m and add to the total ECE
-            ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+    auc_roc = AUROC(true, pred)    
+    logging.info(f"AUROC: {auc_roc:.4f}")
 
+    auc_pr = AUPRC(true, pred)   
+    logging.info(f"AUPRC: {auc_pr:.4f}")
+
+    cm = confusion_matrix(true, pred)
+    logging.info(f"cm: {cm}")  
+
+    return {"accuracy": accuracy, "f1_score": f1, "recall": recall, "auc_roc": auc_roc, "auc_pr": auc_pr, "cm": cm} 
+
+
+def compute_ece(smx: np.ndarray, labels: np.ndarray, n_bins: int = 15) -> float:
+    """Expected Calibration Error (ECE).
+
+    Measures how well predicted probabilities match actual correctness.
+    Bins samples by confidence (max softmax prob), computes
+    |accuracy - confidence| per bin, weighted by bin size.
+
+    ECE = sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|
+
+    Lower is better. 0 = perfectly calibrated.
+    """
+    confidences = smx.max(axis=1)
+    predictions = smx.argmax(axis=1)
+    accuracies = (predictions == labels).astype(float)
+
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+    for i in range(n_bins):
+        mask = (confidences > bin_boundaries[i]) & (
+            confidences <= bin_boundaries[i + 1]
+        )
+        if mask.sum() == 0:
+            continue
+        bin_acc = accuracies[mask].mean()
+        bin_conf = confidences[mask].mean()
+        ece += (mask.sum() / len(labels)) * abs(bin_acc - bin_conf)
     return ece
+
+
+def compute_nll(smx: np.ndarray, labels: np.ndarray) -> float:
+    """Negative Log-Likelihood (NLL).
+
+    NLL = -mean(log(p(y_true)))
+
+    Measures quality of predicted probability for the true class.
+    Lower is better. Equivalent to cross-entropy on test set.
+    """
+    probs_clipped = np.clip(smx, 1e-7, 1.0)
+    return float(-np.log(probs_clipped[np.arange(len(labels)), labels]).mean())
+def reverse_domain_name(domain_name: str):
+    return  '.'.join(str(domain_name).split('.')[::-1])
