@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 from types import SimpleNamespace
 
 from creditext.experiments.mlp_experiments import dataset_loader
 from creditext.experiments.mlp_experiments import mlp_train_classifier
-from creditext.experiments.mlp_experiments.mlp_modules import CrediGrainMultiTaskMLP, credigrain_classification_loss, masked_row_mean, train_credigrain_multitask
+from creditext.experiments.mlp_experiments.mlp_modules import CrediGrainMultiTaskMLP, credigrain_classification_loss, credigrain_multilabel_sample_weights, masked_row_mean, train_credigrain_multitask
 from creditext.experiments.mlp_experiments.utils import absolute_error_summary
 
 
@@ -33,14 +34,28 @@ def test_credigrain_classification_loss_modes_handle_rare_positives():
     positive_counts=torch.tensor([1.0, 2.0])
     negative_counts=torch.tensor([3.0, 2.0])
 
+    unweighted=credigrain_classification_loss(logits, targets, "bce", positive_counts, negative_counts)
     weighted=credigrain_classification_loss(logits, targets, "positive_weights", positive_counts, negative_counts)
     focal=credigrain_classification_loss(logits, targets, "focal", positive_counts, negative_counts)
     balanced=credigrain_classification_loss(logits, targets, "balanced_softmax", positive_counts, negative_counts)
 
     base_loss=torch.nn.functional.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    torch.testing.assert_close(unweighted, base_loss)
     torch.testing.assert_close(weighted, base_loss*torch.tensor([3.0, 1.0]))
     torch.testing.assert_close(focal, base_loss*0.25)
     assert balanced[0, 0] > balanced[0, 1]
+
+
+def test_credigrain_multilabel_sample_weights_favor_rare_positive_rows():
+    y_train={}
+    targets=np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0]], dtype=np.float32)
+    for stream_name in ["functional_category", "cybersecurity", "epistemic_reliability", "epistemic_reliability.bin"]:
+        y_train[stream_name]=targets
+        y_train[f"{stream_name}_mask"]=np.ones_like(targets)
+
+    sample_weights=credigrain_multilabel_sample_weights(y_train)
+
+    torch.testing.assert_close(sample_weights, torch.tensor([np.sqrt(3.0), 1.0, 1.0, 1.0], dtype=torch.float32))
 
 
 def test_credigrain_continuous_predictions_are_bounded():
@@ -62,6 +77,22 @@ def test_credigrain_continuous_predictions_are_bounded():
 
     assert torch.all(predictions >= 0.0)
     assert torch.all(predictions <= 1.0)
+
+
+def test_credigrain_thresholds_maximize_validation_f1_per_label():
+    y_valid={}
+    pred_valid={}
+    targets=np.array([[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 0.0]], dtype=np.float32)
+    scores=np.array([[0.4, 0.9], [0.35, 0.8], [0.3, 0.2], [0.1, 0.1]], dtype=np.float32)
+    for stream_name in ["functional_category", "cybersecurity", "epistemic_reliability", "epistemic_reliability.bin"]:
+        y_valid[stream_name]=targets
+        y_valid[f"{stream_name}_mask"]=np.ones_like(targets)
+        pred_valid[stream_name]=scores
+
+    thresholds=mlp_train_classifier.tune_credigrain_thresholds(y_valid, pred_valid)
+
+    for stream_thresholds in thresholds.values():
+        np.testing.assert_allclose(stream_thresholds, [0.35, 0.9])
 
 
 def test_credigrain_metrics_ignore_unlabelled_rows():
@@ -91,13 +122,14 @@ def test_credigrain_metrics_ignore_unlabelled_rows():
     detailed=mlp_train_classifier.build_credigrain_detailed_metrics(y_test, pred_dict, 0.5, 0.5)
 
     assert metrics["functional_category_f1_micro"] == 1.0
+    assert metrics["functional_category_f1_weighted"] == 1.0
     assert np.isclose(metrics["epistemic_reliability_cts_mae"], 0.1)
     assert np.isclose(metrics["epistemic_reliability_cts_min_ae"], 0.1)
     assert np.isclose(metrics["epistemic_reliability_cts_max_ae"], 0.1)
     assert np.isclose(metrics["reliability_score_mae"], 0.1)
     assert np.isclose(metrics["reliability_score_min_ae"], 0.1)
     assert np.isclose(metrics["reliability_score_max_ae"], 0.1)
-    assert list(summary.index) == ["f1_macro", "f1_micro", "mae", "max_ae", "min_ae", "n", "n_classes"]
+    assert list(summary.index) == ["f1_macro", "f1_micro", "f1_weighted", "mae", "max_ae", "min_ae", "n", "n_classes"]
     assert list(summary.columns) == [
         "functional_category",
         "cybersecurity",
@@ -109,9 +141,31 @@ def test_credigrain_metrics_ignore_unlabelled_rows():
     np.testing.assert_array_equal(summary.loc["n_classes"], [1, 1, 1, 2, 1])
     assert np.isclose(summary.loc["mae", "epistemic_reliability.cts"], 0.1)
     assert set(detailed["evaluated_count"]) == {1}
+    np.testing.assert_array_equal(detailed.loc[detailed["metric_scope"] == "per_label", "decision_threshold"], 0.5)
     regression_rows=detailed[detailed["metric_scope"] == "stream_summary"]
     np.testing.assert_allclose(regression_rows["min_ae"], [0.1, 0.1], atol=1e-7)
     np.testing.assert_allclose(regression_rows["max_ae"], [0.1, 0.1], atol=1e-7)
+
+
+def test_credigrain_weighted_f1_uses_positive_label_support():
+    targets=np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.0], [0.0, 0.0]], dtype=np.float32)
+    predictions=np.array([[0.9, 0.1], [0.9, 0.1], [0.9, 0.1], [0.1, 0.1]], dtype=np.float32)
+    y_test={}
+    pred_dict={}
+    for stream_name in ["functional_category", "cybersecurity", "epistemic_reliability", "epistemic_reliability.bin"]:
+        y_test[stream_name]=targets
+        y_test[f"{stream_name}_mask"]=np.ones_like(targets)
+        pred_dict[stream_name]=predictions
+    y_test["epistemic_reliability.cts"]=np.full(4, np.nan, dtype=np.float32)
+    y_test["epistemic_reliability.cts_mask"]=np.zeros(4, dtype=np.float32)
+    y_test["label_maps"]={"epistemic_reliability.bin":["reliable", "unreliable"]}
+    pred_dict["epistemic_reliability.cts"]=np.zeros(4, dtype=np.float32)
+
+    metrics=mlp_train_classifier.compute_credigrain_metrics(y_test, pred_dict, 0.5, 0.5)
+
+    assert metrics["functional_category_f1_macro"] == 0.5
+    assert metrics["functional_category_f1_weighted"] == 0.75
+    assert not np.isclose(metrics["functional_category_f1_micro"], 0.75)
 
 
 def test_credigrain_train_entrypoint_smoke_with_mocked_hf(tmp_path, monkeypatch):
@@ -194,7 +248,6 @@ def test_credigrain_train_entrypoint_smoke_with_mocked_hf(tmp_path, monkeypatch)
             return {
                 "functional_category": np.full((n, self.y_template["functional_category"].shape[1]), 0.6, dtype=np.float32),
                 "cybersecurity": np.full((n, self.y_template["cybersecurity"].shape[1]), 0.6, dtype=np.float32),
-                "epistemic_reliability": np.full((n, self.y_template["epistemic_reliability"].shape[1]), 0.6, dtype=np.float32),
                 "epistemic_reliability.bin": np.full((n, self.y_template["epistemic_reliability.bin"].shape[1]), 0.6, dtype=np.float32),
                 "epistemic_reliability.cts": np.zeros((n,), dtype=np.float32),
             }
@@ -204,12 +257,11 @@ def test_credigrain_train_entrypoint_smoke_with_mocked_hf(tmp_path, monkeypatch)
         assert y_train["label_maps"] == {
             "functional_category": ["news", "shopping"],
             "cybersecurity": ["malicious", "phishing"],
-            "epistemic_reliability": ["type.reliable=fact-checker", "type.unreliable=fake news"],
             "epistemic_reliability.bin": ["reliable", "unreliable"],
         }
         np.testing.assert_array_equal(y_train["functional_category"], [[1.0, 0.0], [0.0, 1.0]])
         np.testing.assert_array_equal(y_train["cybersecurity"], [[0.0, 1.0], [1.0, 0.0]])
-        np.testing.assert_array_equal(y_train["epistemic_reliability"], [[0.0, 1.0], [1.0, 0.0]])
+        assert "epistemic_reliability" not in y_train
         np.testing.assert_array_equal(y_train["epistemic_reliability.bin"], [[0.0, 1.0], [1.0, 0.0]])
         np.testing.assert_allclose(y_train["epistemic_reliability.cts"], [0.2, 0.8])
         np.testing.assert_array_equal(y_valid["cybersecurity"], [[0.0, 1.0]])
@@ -266,6 +318,7 @@ def test_credigrain_train_entrypoint_smoke_with_mocked_hf(tmp_path, monkeypatch)
         loss_weight_reliability_bin=0.5,
         loss_weight_reliability_cts=0.5,
         classification_loss_mode="focal",
+        class_support_cutoff=1,
         plots_out_path=str(plots_dir),
         logs_out_path=str(logs_dir),
     )
@@ -279,18 +332,17 @@ def test_credigrain_train_entrypoint_smoke_with_mocked_hf(tmp_path, monkeypatch)
         "metric",
         "functional_category",
         "cybersecurity",
-        "epistemic_reliability",
         "epistemic_reliability.bin",
         "epistemic_reliability.cts",
     ]
-    assert summary_df["metric"].tolist() == ["f1_macro", "f1_micro", "mae", "max_ae", "min_ae", "n", "n_classes"]
+    assert summary_df["metric"].tolist() == ["f1_macro", "f1_micro", "f1_weighted", "mae", "max_ae", "min_ae", "n", "n_classes"]
     detailed_files = list(plots_dir.glob("*credigrain_detailed.csv"))
     assert len(detailed_files) == 1
     timings_files = list(plots_dir.glob("*timings.csv"))
     assert len(timings_files) == 1
 
 
-def test_real_credigrain_trainer_masks_missing_continuous_targets():
+def test_real_credigrain_trainer_balances_classes_and_masks_missing_continuous_targets():
     features=np.array([[0.0, 0.2], [0.4, 0.1], [0.8, 0.6], [1.0, 0.9]], dtype=np.float32)
     source_df=pd.DataFrame(
         {
@@ -331,6 +383,46 @@ def test_real_credigrain_trainer_masks_missing_continuous_targets():
     )
 
     assert set(history)=={"train_total", "valid_total", "train_reliability_score", "valid_reliability_score"}
+    assert all(np.isfinite(values).all() for values in history.values())
+
+
+@pytest.mark.parametrize("classification_loss_mode", ["bce", "positive_weights", "focal", "balanced_softmax"])
+def test_real_credigrain_trainer_supports_cutoff_mode_without_categorical_epistemic_head(classification_loss_mode):
+    features=np.array([[0.0, 0.2], [0.4, 0.1], [0.8, 0.6], [1.0, 0.9]], dtype=np.float32)
+    targets={
+        "functional_category":np.array([[1.0], [0.0], [1.0], [0.0]], dtype=np.float32),
+        "functional_category_mask":np.ones((4, 1), dtype=np.float32),
+        "cybersecurity":np.array([[1.0], [0.0], [1.0], [0.0]], dtype=np.float32),
+        "cybersecurity_mask":np.ones((4, 1), dtype=np.float32),
+        "epistemic_reliability.bin":np.array([[1.0], [0.0], [1.0], [0.0]], dtype=np.float32),
+        "epistemic_reliability.bin_mask":np.ones((4, 1), dtype=np.float32),
+        "epistemic_reliability.cts":np.array([0.8, np.nan, 0.6, np.nan], dtype=np.float32),
+        "epistemic_reliability.cts_mask":np.array([1.0, 0.0, 1.0, 0.0], dtype=np.float32),
+        "label_maps":{
+            "functional_category":["news"],
+            "cybersecurity":["phishing"],
+            "epistemic_reliability.bin":["reliable"],
+        },
+    }
+    model=CrediGrainMultiTaskMLP(
+        input_dim=2,
+        head_dims={stream_name:len(classes) for stream_name,classes in targets["label_maps"].items()},
+        hidden_dims=[4],
+    )
+
+    trained,history=train_credigrain_multitask(
+        model,
+        features,
+        targets,
+        features,
+        targets,
+        epochs=1,
+        batch_size=2,
+        lr=0.01,
+        classification_loss_mode=classification_loss_mode,
+    )
+
+    assert "epistemic_reliability" not in trained.predict(features)
     assert all(np.isfinite(values).all() for values in history.values())
 
 

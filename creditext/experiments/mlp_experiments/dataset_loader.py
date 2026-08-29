@@ -19,7 +19,7 @@ agg_months_dict={"oct":["oct"],
 
 
 class CrediGrain(object):
-    TARGET_SCHEMA_VERSION=6
+    TARGET_SCHEMA_VERSION=7
     MONTH_FOLDERS={"oct":"oct2024","nov":"nov2024","dec":"dec2024"}
     GNN_MONTH_FOLDERS={"oct":"oct-2024","nov":"nov-2024","dec":"dec-2024"}
     REQUIRED_SPLIT_COLUMNS=("domain", "functional_category", "cybersecurity", "epistemic_reliability")
@@ -73,6 +73,7 @@ class CrediGrain(object):
             "use_FQDN": bool(getattr(args, "use_FQDN", False)),
             "split_mode": getattr(args, "split_mode", CrediGrain.SUPPORTED_SPLIT_MODE),
             "test_mode": getattr(args, "test_mode", CrediGrain.SUPPORTED_TEST_MODE),
+            "class_support_cutoff": int(getattr(args, "class_support_cutoff", 0)),
             "split_repo": getattr(args, "crediGrain_path", None),
             "text_repo": text_repo,
             "gnn_repo": gnn_repo,
@@ -532,6 +533,34 @@ class CrediGrain(object):
         return class_maps
 
     @staticmethod
+    def _apply_class_support_cutoff(df: pd.DataFrame, class_maps: dict, min_positive_count: int):
+        if min_positive_count <= 0:
+            return class_maps
+
+        filtered_maps={}
+        stream_cols={
+            "functional_category":"functional_category_stream",
+            "cybersecurity":"cybersecurity_stream",
+        }
+        for target_name,col_name in stream_cols.items():
+            positive_counts={label:0 for label in class_maps[target_name]}
+            for sample_labels in df[col_name]:
+                for label in sample_labels:
+                    if label in positive_counts:
+                        positive_counts[label] += 1
+            filtered_maps[target_name]=[
+                label for label in class_maps[target_name]
+                if positive_counts[label] >= min_positive_count
+            ]
+            if not filtered_maps[target_name]:
+                raise ValueError(
+                    f"CrediGrain cutoff={min_positive_count} removes every {target_name} class."
+                )
+
+        filtered_maps["epistemic_reliability.bin"]=class_maps["epistemic_reliability.bin"]
+        return filtered_maps
+
+    @staticmethod
     def _fit_stream_class_source_maps(df: pd.DataFrame, class_maps: dict):
         stream_cols={
             "functional_category":"functional_category_sourced_stream",
@@ -540,7 +569,8 @@ class CrediGrain(object):
             "epistemic_reliability.bin":"epistemic_reliability.bin_sourced_stream",
         }
         class_source_maps={}
-        for target_name,col_name in stream_cols.items():
+        for target_name in class_maps:
+            col_name=stream_cols[target_name]
             sources_by_class={label:set() for label in class_maps[target_name]}
             for annotations in df[col_name].tolist():
                 for label,source in annotations:
@@ -558,7 +588,8 @@ class CrediGrain(object):
             "epistemic_reliability.bin":"epistemic_reliability.bin_stream",
         }
         unseen_by_target={}
-        for target_name,col_name in stream_cols.items():
+        for target_name in class_maps:
+            col_name=stream_cols[target_name]
             observed={label for sample_labels in df[col_name].tolist() for label in sample_labels}
             unseen=sorted(observed-set(class_maps[target_name]))
             unseen_by_target[target_name]=unseen
@@ -580,7 +611,8 @@ class CrediGrain(object):
             "epistemic_reliability":"epistemic_reliability_stream",
             "epistemic_reliability.bin":"epistemic_reliability.bin_stream",
         }
-        for target_name,col_name in stream_cols.items():
+        for target_name in class_maps:
+            col_name=stream_cols[target_name]
             allowed=set(class_maps[target_name])
             filtered[col_name]=filtered[col_name].apply(lambda labels: [label for label in labels if label in allowed])
         return filtered
@@ -611,20 +643,20 @@ class CrediGrain(object):
     def _encode_target_streams(df: pd.DataFrame, class_maps: dict, class_source_maps: dict=None):
         if class_source_maps is None:
             class_source_maps=CrediGrain._fit_stream_class_source_maps(df, class_maps)
-        y_dict={
-            "functional_category":CrediGrain._encode_multilabel_stream(df["functional_category_stream"].tolist(), class_maps["functional_category"]),
-            "functional_category_mask":CrediGrain._encode_class_availability(df["functional_category_sourced_stream"].tolist(), class_maps["functional_category"], class_source_maps["functional_category"]),
-            "cybersecurity":CrediGrain._encode_multilabel_stream(df["cybersecurity_stream"].tolist(), class_maps["cybersecurity"]),
-            "cybersecurity_mask":CrediGrain._encode_class_availability(df["cybersecurity_sourced_stream"].tolist(), class_maps["cybersecurity"], class_source_maps["cybersecurity"]),
-            "epistemic_reliability":CrediGrain._encode_multilabel_stream(df["epistemic_reliability_stream"].tolist(), class_maps["epistemic_reliability"]),
-            "epistemic_reliability_mask":CrediGrain._encode_class_availability(df["epistemic_reliability_sourced_stream"].tolist(), class_maps["epistemic_reliability"], class_source_maps["epistemic_reliability"]),
-            "epistemic_reliability.bin":CrediGrain._encode_multilabel_stream(df["epistemic_reliability.bin_stream"].tolist(), class_maps["epistemic_reliability.bin"]),
-            "epistemic_reliability.bin_mask":CrediGrain._encode_class_availability(df["epistemic_reliability.bin_sourced_stream"].tolist(), class_maps["epistemic_reliability.bin"], class_source_maps["epistemic_reliability.bin"]),
+        y_dict={}
+        for target_name,classes in class_maps.items():
+            y_dict[target_name]=CrediGrain._encode_multilabel_stream(
+                df[f"{target_name}_stream"].tolist(), classes
+            )
+            y_dict[f"{target_name}_mask"]=CrediGrain._encode_class_availability(
+                df[f"{target_name}_sourced_stream"].tolist(), classes, class_source_maps[target_name]
+            )
+        y_dict.update({
             "epistemic_reliability.cts":df["epistemic_reliability.cts_stream"].astype(float).fillna(np.nan).to_numpy(dtype=np.float32),
             "epistemic_reliability.cts_mask":(~df["epistemic_reliability.cts_stream"].isna()).to_numpy(dtype=np.float32),
             "label_maps":class_maps,
             "label_source_maps":class_source_maps,
-        }
+        })
         return y_dict
 
     @staticmethod
@@ -1042,6 +1074,11 @@ class CrediGrain(object):
         X_valid=valid_df[["domain","split"]]
         X_test=test_df[["domain","split"]]
         class_maps=CrediGrain._fit_stream_class_maps(train_df)
+        class_maps=CrediGrain._apply_class_support_cutoff(
+            train_df,
+            class_maps,
+            int(getattr(args, "class_support_cutoff", 0)),
+        )
         class_source_maps=CrediGrain._fit_stream_class_source_maps(train_df, class_maps)
         CrediGrain._validate_stream_classes(valid_df, class_maps, "validation")
         CrediGrain._validate_stream_classes(test_df, class_maps, "test")

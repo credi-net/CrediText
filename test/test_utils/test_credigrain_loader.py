@@ -64,6 +64,30 @@ def test_fit_and_encode_stream_targets_are_deterministic():
     assert "rank" not in y_dict
 
 
+def test_class_support_cutoff_uses_training_positives_and_omits_epistemic_categories():
+    df=pd.DataFrame(
+        {
+            "functional_category_stream":[["common"], ["common"], ["rare"]],
+            "cybersecurity_stream":[["safe"], ["safe"], ["rare-threat"]],
+        }
+    )
+    class_maps={
+        "functional_category":["common", "rare"],
+        "cybersecurity":["rare-threat", "safe"],
+        "epistemic_reliability":["type.reliable=fact-checker"],
+        "epistemic_reliability.bin":["reliable", "unreliable"],
+    }
+
+    filtered=CrediGrain._apply_class_support_cutoff(df, class_maps, min_positive_count=2)
+
+    assert filtered == {
+        "functional_category":["common"],
+        "cybersecurity":["safe"],
+        "epistemic_reliability.bin":["reliable", "unreliable"],
+    }
+    assert CrediGrain._apply_class_support_cutoff(df, class_maps, min_positive_count=0) is class_maps
+
+
 def test_class_availability_uses_source_taxonomy():
     df=pd.DataFrame(
         {
