@@ -54,7 +54,9 @@ dependencies = [
     "safetensors==0.7.0",
     "sympy==1.14.0",
     "tokenizers==0.22.2",
-    "umap-learn==0.5.12"
+    "umap-learn==0.5.12",
+    "openpyxl",
+    "tabulate"
 ]
 
 [tool.flit.module]

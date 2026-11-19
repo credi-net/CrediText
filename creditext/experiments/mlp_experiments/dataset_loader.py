@@ -1,7 +1,9 @@
 from re import S
 from turtle import st
 
-from creditext.experiments.mlp_experiments.utils import fuse_1d_emb, mean, search_parquet_duckdb,normalize_embeddings,train_valid_test_split,resize_and_fuse_emb
+from creditext.experiments.mlp_experiments.utils import fuse_1d_emb, mean, \
+search_parquet_duckdb,normalize_embeddings,train_valid_test_split,resize_and_fuse_emb,query_parquet_duckdb,\
+search_emb_parquet_duckdb_by_page, min_max_mean_pool,avg_pool,mean_std_sim_count_pool
 import pandas as pd
 import numpy as np
 import pickle
@@ -144,23 +146,47 @@ class DomainRel(object):
     @staticmethod
     def load_emb_dict_from_parquet(embed_type: str, path:str="../../../data", model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=8192,normalize:bool=False,original_emb_dim:int=1024,keep_content:str="all",keep_count:int=3,sampled_content_version="" ):
         embd_dict=None
-        if embed_type == "text":
-                embd_dict=search_parquet_duckdb(f'{path}/weak_{sampled_content_version}content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet', filter_by_col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+        domain_urls_dict=None
+        if embed_type == "text":                
+                if "cochran" in sampled_content_version:
+                    urls_file_path=f'{path}/cochran/domainrel_{month}2024_{model_name}_cochran_sampled_{keep_content}{"" if keep_content=="all" else  str(keep_count)}_cluster_props.parquet'
+                    SQL_Query=f"""select url FROM read_parquet('{urls_file_path}')"""
+                    urls_df=query_parquet_duckdb(SQL_Query=SQL_Query)
+                    urls_lst=urls_df["url"].to_list()
+                    emb_file_path=f'{path}/cochran/domainrel_{month}2024_{model_name}_cochran_sampled.parquet'
+                    embd_dict=search_emb_parquet_duckdb_by_page(emb_file_path, q_pages=urls_lst,max_memory="32GB",schema={'key':'domain','val':'embeddings'})
+                else:
+                    emb_file_path=f'{path}/weak_{sampled_content_version}content_emb_{month}2024_{model_name}_{original_emb_dim}.parquet'
+                    embd_dict=search_parquet_duckdb(emb_file_path, filter_by_col="domain",q_domains=None,max_memory="8GB",schema={'key':'domain','val':'embeddings'})
+                ####### list domains and thier content urls for later missclassified domains analysis ########
+                domain_urls_dict = {domain: list(set([entry['page'] for entry in entries])) for domain, entries in embd_dict.items()}
         elif embed_type == "GNN_GAT":
             with open(f'{path}/{month}_{target}_dqr_domain_rni_embeddings.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
 
         # aggregate web pages embedding per domain
-        if embed_type!="text" or keep_content=="all":
+        if embed_type!="text" or keep_content in ["all","random","free_random","top","lower","free_top","free_lower"]:
             if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)                
                 if embed_type=="text":
                     domains_bylength_embd_dict={}
                     for d in embd_dict.keys():
                         d_pages_emb_dict={elem['page']:elem['emb'] for elem in embd_dict[d]}
-                        selected_pages_lst=list(d_pages_emb_dict.keys())
-                        domains_bylength_embd_dict[d]=d_pages_emb_dict[selected_pages_lst[0]][0:emb_dim]
-                        for i in range(1,len(selected_pages_lst)):
-                            domains_bylength_embd_dict[d]=fuse_1d_emb(domains_bylength_embd_dict[d],d_pages_emb_dict[selected_pages_lst[i]][0:emb_dim],fusion_mode="avg")
+                        d_embs_lst=[ elem[0:emb_dim] for elem in list(d_pages_emb_dict.values())]
+                        
+                        pool_lst=["avg","mean_std_sim_count","min_max_mean_pool"]
+                        pool=pool_lst[2]
+                        if pool=="min_max_mean_pool":
+                            domains_bylength_embd_dict[d], _ = min_max_mean_pool(d_embs_lst)
+                        elif pool=="mean_std_sim_count":
+                            domains_bylength_embd_dict[d], _ = mean_std_sim_count_pool(d_embs_lst, agg_fun="avg")
+                        elif pool=="avg":
+                            domains_bylength_embd_dict[d], _ = avg_pool(d_embs_lst)
+
+                        # selected_pages_lst=list(d_pages_emb_dict.keys())
+                        # domains_bylength_embd_dict[d]=d_pages_emb_dict[selected_pages_lst[0]][0:emb_dim]
+                        # for i in range(1,len(selected_pages_lst)):
+                        #     domains_bylength_embd_dict[d]=fuse_1d_emb(domains_bylength_embd_dict[d],d_pages_emb_dict[selected_pages_lst[i]][0:emb_dim],fusion_mode="avg")
+                        
                     embd_dict=domains_bylength_embd_dict
                 else:
                     embd_dict={ k:v[0]['emb'][0:emb_dim] for k,v in embd_dict.items()}
@@ -186,7 +212,7 @@ class DomainRel(object):
             embd_dict=domains_bylength_embd_dict      
         if normalize:
             embd_dict=normalize_embeddings(embd_dict)
-        return embd_dict
+        return embd_dict,domain_urls_dict
     @staticmethod
     def load_splits(path:str,split_mode:str="balanced", test_mode:str="credible-non"):
         domain_rel_annotations_dict=pickle.load(open(f'{path}/domain_rel_annotations_dict.pkl', 'rb'))
@@ -218,6 +244,7 @@ class DomainRel(object):
     def load_run_embeddings(args: dict):
         global agg_months_dict
         full_emb_dict={}
+        domain_urls_dict=None
         ############## Load text embeddings and labels ###############
         if args.embed_type=="FQDN":
             month_emb_dict =DomainRel.load_emb_dict(args.embed_type, args.domainRel_text_emb_path, pickle_name=None,emb_dim=args.emb_dim,normalize=True)
@@ -227,12 +254,16 @@ class DomainRel(object):
                 args.emb_model="embeddinggemma-300m"
             # args.emb_model="Qwen3-Embedding-0.6B"
             full_emb_dict =DomainRel.load_emb_dict(args.embed_type, args.domainRel_text_emb_path, pickle_name=f"weak_content_emb_{args.emb_model}_{args.original_emb_dim}.pkl",emb_dim=args.emb_dim,normalize=False)
+            full_emb_dict={k:min_max_mean_pool([v])[0] for k,v in full_emb_dict.items()} 
 
         if args.agg_text_emb:
             month_emb_dict = DomainRel.load_agg_Nmonth_emb_dict("text",args.domainRel_gnn_emb_path,model_name=args.emb_model, agg=args.agg_function,gnn_encoder=args.gnn_encoder,month_lst=agg_months_dict[args.month],emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim)
         elif args.embed_type not in ["FQDN"]:
             sampled_content_version= "" if args.sampled_content_version == "min3-max3" else f"{args.sampled_content_version}_"
-            month_emb_dict = DomainRel.load_emb_dict_from_parquet(args.embed_type, args.domainRel_text_emb_path, args.emb_model, args.month,normalize=False,emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim,keep_content=args.keep_content,keep_count=args.keep_content_count,sampled_content_version=sampled_content_version)
+            month_emb_dict,domain_urls_dict = DomainRel.load_emb_dict_from_parquet(args.embed_type, args.domainRel_text_emb_path, args.emb_model, args.month,normalize=False,emb_dim=args.emb_dim, original_emb_dim=args.original_emb_dim,keep_content=args.keep_content,keep_count=args.keep_content_count,sampled_content_version=sampled_content_version)
+            for k in full_emb_dict.keys():
+                if k not in domain_urls_dict:
+                    domain_urls_dict[k]=['homepage']
 
         weaklabeles_df = pd.read_csv(f"{args.domainRel_path}/weaklabels.csv")
         weaklabeles_df = weaklabeles_df[weaklabeles_df["domain"].isin(full_emb_dict)]
@@ -297,34 +328,69 @@ class DomainRel(object):
             X_train, y_train, X_valid, y_valid, X_test, y_test = train_valid_test_split(args.domainRel_target, weaklabeles_df,key='domain',test_valid_size=args.test_valid_size,regressor=False)
 
         logging.info(f"len(X_train)={len(X_train)}\tlen(X_valid)={len(X_valid)}\tlen(X_test)={len(X_test)}\t")
-        X_train_feat, X_valid_feat, X_test_feat = resize_and_fuse_emb(text_emb_dict, args.domainRel_target, X_train, X_valid,X_test, gnn_emb=gnn_emb_dict,topic_emb=features_emb_dict,trim_to=args.emb_dim,fusion_mode=args.fusion_mode)
+        final_emb_size=month_emb_dict[list(month_emb_dict.keys())[0]].shape[0]
+        X_train_feat, X_valid_feat, X_test_feat = resize_and_fuse_emb(text_emb_dict, args.domainRel_target, X_train, X_valid,X_test, gnn_emb=gnn_emb_dict,topic_emb=features_emb_dict,trim_to=final_emb_size,fusion_mode=args.fusion_mode)
         logging.info(f"X_train_feat.shape={len(X_train_feat[0]) if type(X_train_feat[0]) == list else X_train_feat[0].shape}")
-        return X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat
+        return X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat,domain_urls_dict
     def get_domains_lst(path:str="~/scratch/hsh_projects/CrediText/data/weaksupervision/weaklabels.csv"):
         labels_df = pd.read_csv(path)
         return labels_df["domain"].tolist()
+    def domains_urls_lst(domains_lst:list[str])->list[str]:
+        labels_df = pd.read_csv(path)
+        return labels_df[labels_df["domain"].isin(domains_lst)]["url"].tolist()
 class DQR (object):
     @staticmethod
-    def load_emb_dict(embed_type: str, path:str="../../../data",pickle_name:str=None, model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=256,normalize:bool=False,gnn_encoder:str="RNI"):
+    def load_emb_dict(embed_type: str, path:str="../../../data",pickle_name:str=None, model_name:str="embeddinggemma-300m", month:str="dec", target:str="pc1", emb_dim:int=256,normalize:bool=False,gnn_encoder:str="RNI",original_emb_dim:int=1024,keep_content:str="all",keep_count:int=3,sampled_content_version="" ):
+        domain_urls_dict={}
+        ################# load embeddings ##################
         if pickle_name:
             with open(f'{path}/{pickle_name}', 'rb') as f:
                 embd_dict = pickle.load(f)
         elif embed_type == "text":
-            if model_name == "embeddinggemma-300m":
-                with open(f'{path}/dqr_{month}_text_embeddinggemma-300m_{emb_dim}.pkl', 'rb') as f:
-                    embd_dict = pickle.load(f)
-            elif model_name == "embeddingQwen3-0.6B":
-                with open(f'{path}/dqr_{month}_text_embeddingQwen3-0.6B_1024.pkl', 'rb') as f:
-                    embd_dict = pickle.load(f)
-            elif model_name == "embeddingQwen3-8B":
-                with open(f'{path}/dqr_{month}_text_embeddingQwen3-8B_4096.pkl', 'rb') as f:
-                    embd_dict = pickle.load(f)
-            elif model_name == "embeddingTE3L":
-                with open(f'{path}/dqr_{month}_text_embeddingTE3L_3072.pkl', 'rb') as f:
-                    embd_dict = pickle.load(f)
-            elif model_name == "IPTC_Topic_emb":
-                with open(f'IPTCTopicModeling/dqr_dec_IPTC_predFinalLayer_emb_dict.pkl','rb') as f:
-                    embd_dict = pickle.load(f)
+            if "cochran" in sampled_content_version:
+                urls_file_path=f'{path}/cochran/dqr_{month}2024_{model_name}_cochran_sampled_{keep_content}{"" if keep_content=="all" else  str(keep_count)}_cluster_props.parquet'
+                SQL_Query=f"""select url FROM read_parquet('{urls_file_path}')"""
+                urls_df=query_parquet_duckdb(SQL_Query=SQL_Query)
+                urls_lst=urls_df["url"].to_list()
+                emb_file_path=f'{path}/cochran/dqr_{month}2024_{model_name}_cochran_sampled.parquet'
+                month_embd_dict=search_emb_parquet_duckdb_by_page(emb_file_path, q_pages=urls_lst,max_memory="32GB",schema={'key':'domain','val':'embeddings'})             
+                ############# load full domains embedding ########
+                full_emb_dict={}
+                if model_name == "embeddinggemma-300m":
+                    with open(f'{path}/dqr_{month}_text_embeddinggemma-300m_{emb_dim}.pkl', 'rb') as f:
+                        full_emb_dict = pickle.load(f)
+                full_emb_dict={k:[{'page':entry[0],'emb':entry[1]} for entry in entries] for k,entries in full_emb_dict.items()}
+                ############# update full embedding with month embedding ########
+                full_emb_dict.update({k:v for k,v in month_embd_dict.items() })
+                embd_dict=full_emb_dict                
+            else:         
+                if model_name == "embeddinggemma-300m":
+                    with open(f'{path}/dqr_{month}_text_embeddinggemma-300m_{emb_dim}.pkl', 'rb') as f:
+                        embd_dict = pickle.load(f)
+                elif model_name == "embeddingQwen3-0.6B":
+                    with open(f'{path}/dqr_{month}_text_embeddingQwen3-0.6B_1024.pkl', 'rb') as f:
+                        embd_dict = pickle.load(f)
+                elif model_name == "embeddingQwen3-8B":
+                    with open(f'{path}/dqr_{month}_text_embeddingQwen3-8B_4096.pkl', 'rb') as f:
+                        embd_dict = pickle.load(f)
+                elif model_name == "embeddingTE3L":
+                    with open(f'{path}/dqr_{month}_text_embeddingTE3L_3072.pkl', 'rb') as f:
+                        embd_dict = pickle.load(f)
+                elif model_name == "IPTC_Topic_emb":
+                    with open(f'IPTCTopicModeling/dqr_dec_IPTC_predFinalLayer_emb_dict.pkl','rb') as f:
+                        embd_dict = pickle.load(f)
+                if not isinstance(embd_dict[list(embd_dict.keys())[0]],np.ndarray) :
+                    embd_dict={k:[{'page':entry[0],'emb':entry[1]} for entry in entries] for k,entries in embd_dict.items()}
+
+                for k in embd_dict.keys():
+                    if k not in domain_urls_dict:
+                        domain_urls_dict[k]=['homepage']
+            ####### list domains and thier content urls for later missclassified domains analysis ########
+            if not isinstance(embd_dict[list(embd_dict.keys())[0]],np.ndarray) :
+                domain_urls_dict = {domain: list(set([entry['page'] for entry in entries])) for domain, entries in embd_dict.items()}
+            else:
+                domain_urls_dict = {domain:['homepage'] for domain, entries in embd_dict.items()}
+                
         elif embed_type == "domainName":
             with open(f'{path}/dqr_domainName_embeddingQwen3-0.6B_1024.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
@@ -396,13 +462,65 @@ class DQR (object):
         elif embed_type == "FQDN":
             with open(f'{path}/dqr_fqdn_features.pkl', 'rb') as f:
                 embd_dict = pickle.load(f)
-        if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)
-            embd_dict={ k:v[0]['emb'] for k,v in embd_dict.items()}
-        elif isinstance(embd_dict[list(embd_dict.keys())[0]][0], list) and isinstance(embd_dict[list(embd_dict.keys())[0]][0][0], str) : #list of lists per domain pages (parquet format)
-            embd_dict={ k:v[0][1] for k,v in embd_dict.items()}
+
+
+         ############### aggregate web pages embedding per domain ####################
+        if embed_type!="text" or keep_content in ["all","random","free_random","top","lower","free_top","free_lower"]:
+            if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)                
+                pool_lst=["avg","mean_std_sim_count","min_max_mean_pool"]
+                pool=pool_lst[0]
+                logging.info(f"pool={pool}")
+                if embed_type=="text":
+                    domains_bylength_embd_dict={}
+                    for d in embd_dict.keys():
+                        d_pages_emb_dict={elem['page']:elem['emb'] for elem in embd_dict[d]}
+                        d_embs_lst=[ elem[0:emb_dim] for elem in list(d_pages_emb_dict.values())]
+                        
+                        if pool=="min_max_mean_pool":
+                            domains_bylength_embd_dict[d], _ = min_max_mean_pool(d_embs_lst)
+                        elif pool=="mean_std_sim_count":
+                            domains_bylength_embd_dict[d], _ = mean_std_sim_count_pool(d_embs_lst, agg_fun="avg")
+                        elif pool=="avg":
+                            domains_bylength_embd_dict[d], _ = avg_pool(d_embs_lst)
+
+                        # selected_pages_lst=list(d_pages_emb_dict.keys())
+                        # domains_bylength_embd_dict[d]=d_pages_emb_dict[selected_pages_lst[0]][0:emb_dim]
+                        # for i in range(1,len(selected_pages_lst)):
+                        #     domains_bylength_embd_dict[d]=fuse_1d_emb(domains_bylength_embd_dict[d],d_pages_emb_dict[selected_pages_lst[i]][0:emb_dim],fusion_mode="avg")
+                        
+                    embd_dict=domains_bylength_embd_dict
+                else:
+                    embd_dict={ k:v[0]['emb'][0:emb_dim] for k,v in embd_dict.items()}
+                    
+            elif isinstance(embd_dict[list(embd_dict.keys())[0]][0], list) and isinstance(embd_dict[list(embd_dict.keys())[0]][0][0], str) : #list of lists per domain pages (parquet format)
+                embd_dict={ k:v[0][1][0:emb_dim] for k,v in embd_dict.items()}
+        else:
+            logging.info(f"keep_content={keep_content}\tkeep_count={keep_count}")
+            month_lengths_dict=pickle.load(open(f'{path}/dqr_dec2024_pages_length_dict.pkl', 'rb'))
+            domains_bylength_embd_dict={}
+            if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict):
+                for d in embd_dict.keys():
+                    d_pages_emb_dict={elem['page']:elem['emb'] for elem in embd_dict[d]}
+                    d_pages_length_dict={page:month_lengths_dict[page] for page in d_pages_emb_dict}
+                    if keep_content=="longest":
+                        sorted_dict = dict(sorted(d_pages_length_dict.items(), key=lambda x: x[1],reverse=True)) ## sort desc
+                    elif keep_content=="shortest":
+                        sorted_dict = dict(sorted(d_pages_length_dict.items(), key=lambda x: x[1])) ## sort asc
+                    selected_pages_lst=list(sorted_dict.keys())[0:keep_count]
+                    domains_bylength_embd_dict[d]=d_pages_emb_dict[selected_pages_lst[0]][0:emb_dim]
+                    for i in range(1,len(selected_pages_lst)):
+                        domains_bylength_embd_dict[d]=fuse_1d_emb(domains_bylength_embd_dict[d],d_pages_emb_dict[selected_pages_lst[i]][0:emb_dim],fusion_mode="avg")
+            embd_dict=domains_bylength_embd_dict      
+
+                
+
+        # if isinstance(embd_dict[list(embd_dict.keys())[0]][0], dict): #list of dicts per domain pages (parquet format)
+        #     embd_dict={ k:v[0]['emb'] for k,v in embd_dict.items()}
+        # elif isinstance(embd_dict[list(embd_dict.keys())[0]][0], list) and isinstance(embd_dict[list(embd_dict.keys())[0]][0][0], str) : #list of lists per domain pages (parquet format)
+        #     embd_dict={ k:v[0][1] for k,v in embd_dict.items()}
         if normalize:
             embd_dict=normalize_embeddings(embd_dict)
-        return embd_dict
+        return embd_dict,domain_urls_dict
 
     @staticmethod
     def load_weaksupervision_emb_dict(embed_type: str, path: str="../../../data", model_name: str="embeddinggemma-300m", month: str="dec",
@@ -586,13 +704,17 @@ class DQR (object):
         return months_emb_PhishTank_lst[0], months_emb_URLhaus_lst[0], months_emb_legit_lst[0]
 
     @staticmethod
-    def load_run_embeddings(args:dict):
+    def     load_run_embeddings(args:dict):
         global agg_months_dict
         ############## Load training data and split ###############
         if args.agg_text_emb:
             text_emb_dict = DQR.load_agg_Nmonth_emb_dict("text", path= args.dqr_text_emb_path,model_name= args.emb_model,month_lst=agg_months_dict[args.month], agg="avg",normalize=False)
         else:
-            text_emb_dict = DQR.load_emb_dict(args.embed_type,path=args.dqr_text_emb_path, model_name=args.emb_model, month=args.month,normalize=True,emb_dim=args.emb_dim)
+            sampled_content_version= "" if args.sampled_content_version == "min3-max3" else f"{args.sampled_content_version}_"
+            text_emb_dict,domain_urls_dict = DQR.load_emb_dict(args.embed_type,path=args.dqr_text_emb_path, model_name=args.emb_model, month=args.month,normalize=True,emb_dim=args.emb_dim,original_emb_dim=args.original_emb_dim,keep_content=args.keep_content,keep_count=args.keep_content_count,sampled_content_version=sampled_content_version)
+            # for k in full_emb_dict.keys():
+            #     if k not in domain_urls_dict:
+            #                 domain_urls_dict[k]=['homepage']           
 
         labeled_11k_df = pd.read_csv(f"{args.dqr_path}/domain_ratings.csv")
         labeled_11k_df[f"{args.dqr_target}_norm"]=labeled_11k_df[args.dqr_target].apply(lambda x: round(float(x)*10))
@@ -646,7 +768,7 @@ class DQR (object):
                             "dec":["oct","nov","dec"]}
                 gnn_emb_dict = DQR.load_agg_Nmonth_emb_dict("GNN_GAT", args.dqr_gnn_emb_path, agg=args.agg_function,gnn_encoder=args.gnn_encoder,month_lst=agg_months_dict[args.month])
             else:
-                gnn_emb_dict = DQR.load_emb_dict("GNN_GAT", args.dqr_gnn_emb_path,month=args.month,gnn_encoder=args.gnn_encoder,normalize=False)
+                gnn_emb_dict,_ = DQR.load_emb_dict("GNN_GAT", args.dqr_gnn_emb_path,month=args.month,gnn_encoder=args.gnn_encoder,normalize=False)
             labeled_11k_df = labeled_11k_df[labeled_11k_df["domain"].isin(gnn_emb_dict.keys())]
         if 'use_topic_emb' in args and args.use_topic_emb:
             # features_emb_dict = load_emb_dict("IPTC_Topic", args.emb_path)
@@ -664,9 +786,11 @@ class DQR (object):
         ############ Use Startified random split per month #################
         # X_train, y_train, X_valid, y_valid, X_test, y_test = train_valid_test_split(args.dqr_target, labeled_11k_df,key='domain',test_valid_size=args.test_valid_size)
         ############ resize Emb #################
-        X_train_feat, X_valid_feat, X_test_feat = resize_and_fuse_emb(text_emb_dict, args.dqr_target, X_train, X_valid,X_test, gnn_emb=gnn_emb_dict,topic_emb=features_emb_dict,trim_to=args.emb_dim)
+        # final_emb_size=args.emb_dim
+        final_emb_size=text_emb_dict[list(text_emb_dict.keys())[0]].shape[0]
+        X_train_feat, X_valid_feat, X_test_feat = resize_and_fuse_emb(text_emb_dict, args.dqr_target, X_train, X_valid,X_test, gnn_emb=gnn_emb_dict,topic_emb=features_emb_dict,trim_to=final_emb_size)
         logging.info(f"X_train_feat.shape={len(X_train_feat[0]) if type(X_train_feat[0]) == list else X_train_feat[0].shape}")
-        return X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat
+        return X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat,domain_urls_dict
     
     @staticmethod
     def get_domains_lst(path:str="~/scratch/hsh_projects/CrediText/data/dqr/domain_ratings.csv"):        

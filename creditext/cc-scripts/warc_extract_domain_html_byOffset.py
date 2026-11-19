@@ -98,7 +98,7 @@ class ExtractwarcHTMLJob(CCSparkJob):
             if 1 == 1:
                 WARC_Target_URI = record.rec_headers['WARC-Target-URI']
                 Domain_Name = urllib.parse.unquote(
-                    WARC_Target_URI.split("/")[2].split("www.")[-1].split("?")[0]
+                    WARC_Target_URI.split("/")[2].split(".*www.")[-1].split("?")[0]
                 )
                 # if Domain_Name in self.domains_set.value:
                 WARC_Date      = record.rec_headers['WARC-Date']

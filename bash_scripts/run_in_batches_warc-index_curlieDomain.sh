@@ -2,25 +2,24 @@
 #SBATCH --ntasks=1
 #SBATCH --partition=long-cpu
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=24:00:00
-#SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/cc-content-ext/cc-content-ext_job_%j.out
-#SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/cc-content-ext/cc-content-ext_job_%j.err
+#SBATCH --time=10:00:00
+#SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/curlieDomain_cc-index-build_job_%j.out
+#SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/cc-index-build/curlieDomain_cc-index-build_job_%j.err
 
 # Exit on error
 set -e
 
 
 if [ -z "$1" ]; then
-      CRAWL=ccmain202508
+      CRAWL=ccmain2022451
 else
       CRAWL=$1
 fi
 CRAWL=${CRAWL,,}
-wetFilesOrder="${CRAWL}_wet_FilesOrder.txt"
 if [ -z "$2" ]; then
-      Month=Feb2025
+      Month=Dec2024
 else
       Month=$2
 fi
@@ -55,9 +54,9 @@ export PATH=$PATH:$JAVA_HOME/bin
 
 # Execute Python script
 # Use `uv run --offline` on clusters without internet access on compute nodes.
+
 for ((i=$sidx; i<$eidx; i+=$batch_size)); do
     echo "#########################################################################################"
-    echo ./end-to-end.sh  CC-Crawls/${Month}.txt $i $((i+$batch_size-1)) [wet] ../data/${Month}/${Month}_domains_${sidx}_${eidx}.csv content_ext_table spark-warehouse/$wetFilesOrder
-    ./end-to-end.sh  CC-Crawls/${Month}.txt $i $((i+$batch_size-1)) [wet] ../data/${Month}/${Month}_domains_${sidx}_${eidx}.csv content_ext_table spark-warehouse/$wetFilesOrder
-    # rm -r  ~/scratch/crawl-data/CC-MAIN-2025-08/segments
+    echo "/end-to-end.sh  CC-Crawls/$Month.txt $i $((i+batch_size-1)) [cc-index-table] ../data/curlie/Curlie_Domain-Level/curliDomains.csv"
+    ./end-to-end.sh  CC-Crawls/$Month.txt $i $((i+batch_size-1)) [cc-index-table] ../data/curlie/Curlie_Domain-Level/curliDomains.csv  curlieDomain_cc_index_table
 done

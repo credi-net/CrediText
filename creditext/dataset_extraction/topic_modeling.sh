@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=96G
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/topic_modeling/topic_modeling_job_%j.out
 #SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/topic_modeling/topic_modeling_job_%j.err
 

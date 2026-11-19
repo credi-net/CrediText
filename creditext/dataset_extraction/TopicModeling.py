@@ -240,12 +240,12 @@ def query_topics_list(topics_parquet_file_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ccmain content merge")
-    parser.add_argument("--task", type=str, default="compare2datasets", choices=["TopicModeling","PklToParquet","buildIndex","queryTopics","domainRel","merge2_emb_parquet","compare2datasets"], help="task type")
-    parser.add_argument("--emb_model", type=str, default="gemma300", choices=["gemma300","paraphrase-multilingual-MiniLM-L12-v2"], help="task type")
+    parser.add_argument("--task", type=str, default="TopicModeling", choices=["TopicModeling","PklToParquet","buildIndex","queryTopics","domainRel","merge2_emb_parquet","compare2datasets"], help="task type")
+    parser.add_argument("--emb_model", type=str, default="gemma", choices=["gemma","paraphrase-multilingual-MiniLM-L12-v2"], help="task type")
     parser.add_argument("--ccmain", type=str, default="ccmain202451", help="ccmain")
     parser.add_argument("--base_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/bash_scripts/spark-warehouse", help="base path")    
     parser.add_argument("--start_idx", type=int, default=0, help="frist chunck idx")    
-    parser.add_argument("--end_idx", type=int, default=90000, help="end chunck idx")     
+    parser.add_argument("--end_idx", type=int, default=100, help="end chunck idx")     
     args = parser.parse_args()
     print(f"args={args}")     
     
@@ -270,33 +270,36 @@ if __name__ == "__main__":
          
         files_path=f"warc_warc_bysampledoffset_{args.ccmain}"
         base_path=f"{args.base_path}/{files_path}" 
-        file_path_list=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*{args.emb_model}.pkl")
-        for f in file_path_list:
-            k=f.split("/")[-2]
-            if k not in file_path_dict:
-                file_path_dict[k]=[]
-            file_path_dict[k].append(f)
-        pkl_to_parquet(file_path_dict,args.emb_model,args.start_idx,args.end_idx)
+        file_path_list=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*{args.emb_model}*.pkl")
+        if len(file_path_list)>0:
+            for f in file_path_list:
+                k=f.split("/")[-2]
+                if k not in file_path_dict:
+                    file_path_dict[k]=[]
+                file_path_dict[k].append(f)
+            pkl_to_parquet(file_path_dict,args.emb_model,args.start_idx,args.end_idx)
+        else:
+            print(f"no pkl files found in {base_path} for {args.emb_model}")
     elif args.task=="buildIndex":
         files_path=f"warc_warc_bysampledoffset_{args.ccmain}"
         base_path=f"{args.base_path}/{files_path}"   
         emb_files_lst=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*{args.emb_model}_emb.parquet")
         build_domains_index_parquet(emb_files_lst,0,len(emb_files_lst))
     elif args.task=="TopicModeling":        
-        bert_model_path=f"/home/mila/a/abdallah/scratch/hsh_projects/CrediText/domain_sampler/safe_bertopic" 
+        # bert_model_path=f"/home/mila/a/abdallah/scratch/hsh_projects/CrediText/domain_sampler/safe_bertopic"         
+        bert_model_path=f"/home/mila/a/abdallah/scratch/hsh_projects/CrediText/domain_sampler/new_safe_bertopic"         
+        files_path=f"warc_warc_bysampledoffset_{args.ccmain}"
+        base_path=f"{args.base_path}/{files_path}"   
+        emb_files_lst=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*{args.emb_model}*emb*.parquet",nested_folders=True)                
         
-        # files_path=f"warc_warc_bysampledoffset_{args.ccmain}"
-        # base_path=f"{args.base_path}/{files_path}"   
-        # emb_files_lst=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*_{args.emb_model}_emb*.parquet",nested_folders=False)                
-        
-        files_path=f"CrediBench-WebContent-Dec2024"
-        base_path=f"{args.base_path}"   
-        emb_files_lst=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*_{args.emb_model}_emb*.parquet",nested_folders=False)
-        
-        topic_modeling(emb_files_lst,bert_model_path,args.start_idx,args.end_idx+1)
+        # files_path=f"CrediBench-WebContent-Dec2024"
+        # base_path=f"{args.base_path}"   
+        # emb_files_lst=list_parquet_files(base_path,files_path,args.start_idx,args.end_idx,50,[],match_regex=f"*_{args.emb_model}_emb*.parquet",nested_folders=False)
+        print(f"len(emb_files_lst)={len(emb_files_lst)}")
+        topic_modeling(emb_files_lst,bert_model_path,0,len(emb_files_lst))
     elif args.task=="queryTopics":
-        # topics_file_path=f"{args.base_path}/warc_bysampledoffset_topics_ccmain202451.parquet"
-        topics_file_path=f"{args.base_path}/CrediBench-WebContent-Dec2024/Dec2024_max6_topics_top3.parquet"
+        topics_file_path=f"{args.base_path}/warc_bysampledoffset_topics_ccmain202451.parquet"
+        # topics_file_path=f"{args.base_path}/CrediBench-WebContent-Dec2024/Dec2024_max6_topics_top3.parquet"
         query_topics_per_doc(topics_file_path)
         query_topics_list(topics_file_path)
        

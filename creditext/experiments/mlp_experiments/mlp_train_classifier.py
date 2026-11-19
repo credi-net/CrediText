@@ -13,6 +13,7 @@ from mlp_modules import MLPRegressor, train_classifier_unbalanced,train_classifi
 from mlp_modules import MLP3LayersPredictor
 from mlp_modules import MultiTaskMLP,train_scikitlearn_classifier,LabelPredictor,train_classifier_unbalanced
 from sklearn.preprocessing import normalize 
+from tabulate import tabulate
 from utils import train_valid_test_split,resize_and_fuse_emb,\
                   plot_loss,plot_regression_scatter,eval,\
                   plot_classesCount,plot_confusion_matrix,\
@@ -35,14 +36,13 @@ def mlp_classifier(args) -> None:
     day = now.strftime("%Y%m%d")
     os.makedirs(f"{args.logs_out_path}/{day}", exist_ok=True)
     os.makedirs(f"{args.plots_out_path}/{day}", exist_ok=True)
-
     iso_compact = now.strftime("%Y%m%dT%H%M%S")
-    run_file_name=f"DomainRel_{args.month}_{args.domainRel_target}_{args.sampled_content_version}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}_{args.split_mode}_{args.test_mode}_{args.fusion_mode}_{args.keep_content}-{args.keep_content_count}_{iso_compact}"
+    run_file_name=f"DomainRel_{args.month}_{args.domainRel_target}_{args.sampled_content_version}_{args.keep_content}-{args.keep_content_count}_{args.library}_{args.embed_type}_{args.emb_model}_{f'GAT-{args.gnn_encoder}' if args.use_gnn_emb else ''}{'-'+args.agg_function if args.agg_month_emb else ''}{'_topic-emb' if args.use_topic_emb else ''}_{args.split_mode}_{args.test_mode}_{args.fusion_mode}_{iso_compact}"
     setup_logging(f"{args.logs_out_path}/{day}/{run_file_name}.log")          
     logging.info(f"args={args}")  
     run_file_name=f"{args.plots_out_path}/{day}/{run_file_name}"
     ############################
-    X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat=DomainRel.load_run_embeddings(args)
+    X_train, y_train, X_valid, y_valid, X_test, y_test,X_train_feat, X_valid_feat, X_test_feat,domain_urls_dict=DomainRel.load_run_embeddings(args)
     ############## Save Test set Embeddings dict pickle #############
     write_testset_emb(run_file_name,X_test,X_test_feat)
     ################# Train #####################
@@ -104,6 +104,37 @@ def mlp_classifier(args) -> None:
             logits_k_plus_1 = torch.cat([logits_k, logit_abstain], dim=-1)
             pred = 1 - torch.nn.functional.softmax(logits_k_plus_1, dim=-1)[:, -1]
             pred=pred.detach()
+        ################# get missclassifed domains lst and thier documents/urls #########
+        def get_true_false_classified_domains_stats(true, pred, X_test,domain_urls_dict):
+            df=pd.DataFrame(zip(true, pred),columns=['true','pred'])
+            df['correct']=df.apply(lambda row: 1 if row.true==row.pred else 0, axis=1)
+            missclassified_idx_lst=df[df.correct==0].index.tolist()  
+            X_test["id"]=np.arange(len(X_test))          
+            X_test["correct"]=X_test["id"].apply(lambda x: 0 if x in missclassified_idx_lst else 1)
+            X_test['urls_lst']=X_test['domain'].apply(lambda domain: domain_urls_dict[domain] if domain in domain_urls_dict else [])
+            X_test['urls_count']=X_test['domain'].apply(lambda domain: len(domain_urls_dict[domain]) if domain in domain_urls_dict else 0)
+            X_test['urls_count_cat']=X_test['urls_count'].apply(lambda c: c if c<=6 else ">6")
+            example_domains_df = X_test.groupby(['correct','weak_label','urls_count_cat']).head(2)
+            example_domains_df.sort_values(by=['urls_count_cat','correct','weak_label'], inplace=True)            
+            # logging.info("example_domains_df:",example_domains_df)
+            count_cat_dict=X_test['urls_count_cat'].value_counts().to_dict()
+            grouping_counts_df=X_test[['correct','weak_label','urls_count_cat']].value_counts().reset_index(name='count')
+            grouping_counts_df["acc"]=grouping_counts_df.apply(lambda row: row['count']/count_cat_dict[row['urls_count_cat']], axis=1)
+            grouping_counts_df.sort_values(by=['urls_count_cat','correct','weak_label'], inplace=True)            
+            # logging.info("grouping_counts_df:",grouping_counts_df)
+            true_classified_df=X_test[~X_test.id.isin(missclassified_idx_lst)]
+            false_classified_df=X_test[X_test.id.isin(missclassified_idx_lst)]        
+            ############ print Content Stats ###############
+            logging.info(f"false_classified_df= {false_classified_df}")
+            logging.info(f"Mean-Max urls count: true-classified credible domains: {true_classified_df[true_classified_df.weak_label==1]['urls_count'].mean()} \t {true_classified_df[true_classified_df.weak_label==1]['urls_count'].max()}")
+            logging.info(f"Mean-Max urls count: true-classified uncredible domains: {true_classified_df[true_classified_df.weak_label==0]['urls_count'].mean()} \t {true_classified_df[true_classified_df.weak_label==0]['urls_count'].max()}")
+            logging.info(f"Mean-Max urls count: false-classified credible domains: {false_classified_df[false_classified_df.weak_label==1]['urls_count'].mean()} \t {false_classified_df[false_classified_df.weak_label==1]['urls_count'].max()}")
+            logging.info(f"Mean-Max urls count: false-classified uncredible domains: {false_classified_df[false_classified_df.weak_label==0]['urls_count'].mean()} \t {false_classified_df[false_classified_df.weak_label==0]['urls_count'].max()}")
+            # X_test=X_test.sort_values(by=["domain"])
+            # X_test.to_csv("/home/mila/a/abdallah/scratch/hsh_projects/CrediText/data/domanrel_mi3max3_testset_predictions.csv",index=None)
+            return true_classified_df,false_classified_df
+        
+        true_classified_df,false_classified_df=get_true_false_classified_domains_stats(true, pred, X_test,domain_urls_dict)        
         ################## Eval ###############        
         clf_res_dict =eval_binary_classification(true, pred)
         for k in clf_res_dict.keys():
@@ -163,7 +194,7 @@ if __name__ == '__main__':
     parser.add_argument("--emb_model", type=str, default="embeddinggemma-300m",
                         choices=["Qwen3-Embedding-8B", "Qwen3-Embedding-0.6B", "embeddinggemma-300m", "TE3L","Qwen3-Embedding-8B-Q5_K_M",
                                  "IPTC_Topic_emb","RoBERTa"],help="LLM embedding model")
-    parser.add_argument("--sampled_content_version", type=str, default="min3-max3", choices=["min3-max3","sampled"])
+    parser.add_argument("--sampled_content_version", type=str, default="min3-max3", choices=["min3-max3","cochran"])
     parser.add_argument("--batch_size", type=int, default=5000,help="training batch size")
     parser.add_argument("--test_valid_size", type=float, default=0.4,help="ratio of test and vaild sets")
     parser.add_argument("--emb_dim", type=int, default=256,help="embedding size")
@@ -179,8 +210,8 @@ if __name__ == '__main__':
     parser.add_argument("--use_gnn_emb", action='store_true',help="append GNN embedding")
     parser.add_argument("--gnn_encoder",   default="text", choices=["RNI","text"],help="append GNN node embedding intialization")
     parser.add_argument("--agg_month_emb",  action='store_true', help="aggregate montly GNN embeddings")
-    parser.add_argument("--agg_text_emb", action='store_true', help="aggregate montly text embeddings")
-    parser.add_argument("--agg_function", type=str, default="cat",choices=["avg","cat", "sum", "min", "max"], help="aggregate function")
+    parser.add_argument("--agg_text_emb", action='store_true', help="aggregate monthly text embeddings")
+    parser.add_argument("--agg_function", type=str, default="avg",choices=["avg","cat", "sum", "min", "max"], help="aggregate function")
     parser.add_argument("--use_topic_emb", action='store_true',help="use topic modeling features")
     parser.add_argument("--filter_by_GNN_nodes", action='store_false',help="filter by domains has GNN embeddings")
     parser.add_argument("--num_classes", type=int, default=2,help="# classifcation classes for Multihead model")
@@ -191,10 +222,11 @@ if __name__ == '__main__':
     parser.add_argument("--split_mode", type=str, default="balanced", choices=["balanced", "phishing","malware","misinfo","general"],help="split mode for the dataset")
     parser.add_argument("--test_mode", type=str, default="credible-non", choices=["credible-non", "sub-category"],help="split mode for the dataset")
     parser.add_argument("--fusion_mode", type=str, default="avg", choices=["avg","cat", "sum", "min", "max","mul","gated"],help="embedding fusion method")
-    parser.add_argument("--keep_content", type=str, default="all", choices=["all","longest", "shortest"],help="which content to keep for fusion")
-    parser.add_argument("--keep_content_count", type=int, default=4, help="number of pages content to keep for fusion")
+    parser.add_argument("--keep_content", type=str, default="all", choices=["all","longest", "shortest","random", "free_random","top","free_top","lower","free_lower"],help="which content to keep for fusion")
+    parser.add_argument("--keep_content_count", type=int, default=6, help="k: number of pages content to keep for fusion")
     parser.add_argument("--loss_fun", type=str, default="nl_loss", choices=["nl_loss", "halo"],help="the loss function to use for training the MLP regressor")
     parser.add_argument("--transferability_test_month", type=str, default="dec", choices=["oct", "nov","dec"],help="transferabilty of the model to a new month test set")
     args = parser.parse_args()
     mlp_classifier(args)
+    # /home/mila/a/abdallah/scratch/hsh_projects/CrediText/data/weaksupervision/cochran/domainrel_dec2024_gemma300m_cochran_sampled_cluster_props.parquet
     

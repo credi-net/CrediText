@@ -84,7 +84,7 @@ class ExtractwarcHTMLJob(CCSparkJob):
             # if len(set(WARC_Identified_Content_Languages_lst) & set(self.supported_langs)) > 0:
             if 1 == 1:
                 WARC_Target_URI = record.rec_headers['WARC-Target-URI']
-                Domain_Name = urllib.parse.unquote(WARC_Target_URI.split("/")[2].split("www.")[-1].split("?")[0])
+                Domain_Name = urllib.parse.unquote(WARC_Target_URI.split("/")[2].split(".*www.")[-1].split("?")[0])
                 # print(f" Domain_Name: {Domain_Name} ")
                 if Domain_Name in self.domains_set.value:
                     # if self.is_domain_exist(Domain_Name):

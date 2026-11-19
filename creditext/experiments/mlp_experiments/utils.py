@@ -21,7 +21,7 @@ import glob
 import re
 import logging
 from sklearn.preprocessing import MinMaxScaler,StandardScaler
-import shap
+# import shap
 from typing import Any
 import torch
 from itertools import zip_longest
@@ -124,7 +124,7 @@ def resize_and_fuse_emb(text_emb: Dict[Any, list], target: str, X_train: pd.Data
 def fuse_2d_emb(emb_lst1:list[list],emb_lst2:list[list], fusion_mode:str="cat"):    
     fused_emb = [fuse_1d_emb(row1, row2, fusion_mode=fusion_mode) for row1, row2 in zip_longest(emb_lst1, emb_lst2, fillvalue=0)]
     return fused_emb
-def fuse_1d_emb(row1:list,row2:list, fusion_mode:str="cat"):
+def fuse_1d_emb(row1:list,row2:list, fusion_mode:str="cat")-> list:
     if fusion_mode == "cat":
         fused_emb = [*row1, *row2]
     elif fusion_mode == "sum":
@@ -138,6 +138,88 @@ def fuse_1d_emb(row1:list,row2:list, fusion_mode:str="cat"):
     elif fusion_mode == "mul":
         fused_emb = [a * b for a, b in zip_longest(row1, row2, fillvalue=1)]
     return fused_emb
+
+def mean_std_sim_count_pool(embeddings: list[list],agg_fun:str="avg") -> dict:
+    '''aggregate embeddings and calculate both std and pairwise similarity  then concatenate the three parts'''
+    embeddings = np.array(embeddings)
+    n_docs, d = embeddings.shape
+    if agg_fun=="avg":
+        mean_vec = embeddings.mean(axis=0)               # (d,)
+    std_vec  = embeddings.std(axis=0)                 # (d,)  within-domain dispersion
+
+    # pairwise cosine similarity -> diversity signal 
+    sims = embeddings @ embeddings.T                  # already normalized -> cosine sim
+    iu = np.triu_indices(n_docs, k=1)
+    mean_pairwise_sim = sims[iu].mean() if n_docs > 1 else 1.0
+
+    vec = np.concatenate([
+        mean_vec,
+        std_vec,
+        [mean_pairwise_sim],
+        [n_docs],
+    ]).astype(np.float32)
+
+    return vec, {
+        "mean_embedding": mean_vec,          # (d,)  -- main feature block
+        "std_embedding": std_vec,            # (d,)  -- dispersion feature block
+        "mean_pairwise_cosine_sim": mean_pairwise_sim,  # scalar, diversity proxy
+        "n_docs": n_docs,                    # scalar, covariate — do NOT silently drop
+    }
+def min_max_mean_pool(embeddings, dim=0):
+    """
+    Generates a Min-Max-Mean pooled representation of a set of embeddings.
+    
+    Args:
+        embeddings (torch.Tensor): Shape (num_docs, embedding_dim) or (batch, num_docs, embedding_dim)
+        dim (int): The dimension to pool across. Use 0 for a single domain, 1 for batched domains.
+        
+    Returns:
+        torch.Tensor: Concatenated pooled embeddings. Shape will be (... , embedding_dim * 3)
+    """
+    embeddings = np.array(embeddings)
+    # 1. Mean Pooling
+    mean_pool =  embeddings.mean(axis=0)
+    
+    # 2. Max Pooling 
+    # Note: torch.max returns a tuple of (values, indices). We only want the values [0].
+    max_pool =  embeddings.max(axis=0)
+    
+    # 3. Min Pooling
+    # Note: torch.min also returns a tuple.
+    min_pool =  embeddings.min(axis=0)
+
+    # #4 Mul Pooling
+    # multiplied_vector = np.prod(embeddings, axis=0)
+    # l2_norm = np.linalg.norm(multiplied_vector)
+    # if l2_norm == 0:
+    #     return multiplied_vector        
+    # normalized_vector = multiplied_vector / l2_norm
+    
+    # 4. Concatenate the three vectors along the feature dimension
+    combined_representation=np.concatenate([
+        mean_pool,
+        max_pool,
+        min_pool,
+        # normalized_vector
+    ]).astype(np.float32)    
+    return combined_representation, (mean_pool,max_pool,min_pool)
+def avg_pool(embeddings, dim=0):
+    """
+    Generates a Min-Max-Mean pooled representation of a set of embeddings.
+    
+    Args:
+        embeddings (torch.Tensor): Shape (num_docs, embedding_dim) or (batch, num_docs, embedding_dim)
+        dim (int): The dimension to pool across. Use 0 for a single domain, 1 for batched domains.
+        
+    Returns:
+        torch.Tensor: Mean
+    """
+    
+    # 1. Mean Pooling
+    embeddings = np.array(embeddings)
+    mean_pool = embeddings.max(axis=0)  
+    return mean_pool, None
+
 
 def plot_loss(train_loss:list[float], valid_loss:list[float], test_loss:list[float], mean_loss:list[float], out_file_path:str ="loss_plot.pdf",ylabel:str="MSE"):
     plt.figure(figsize=(5, 4))
@@ -280,6 +362,64 @@ def search_parquet_content(path:str="../../../data/Dec2024/gnn_random_v0", parqu
         for i in range(len(batch)):
             emb_dict[str(batch['domain'][i])]=batch['embeddings'][i][0]['emb'].as_py() ## first doc emb
     return emb_dict
+
+def search_emb_parquet_duckdb_by_page(f_path:str,q_pages:list,projection_cols:list[str]=None,max_memory:str="4GB",threads:int =4,batch_size:int =int(1e4),schema:dict={'key':'domain','val':'emb'},keep_emb_frist_elem:int =None):
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit='{max_memory}'")
+    con.execute(f"SET threads={threads}")    
+    if  not q_pages or len(q_pages)==0:
+        query=f"SELECT {'*' if projection_cols is None else ",".join(projection_cols)} FROM read_parquet('{f_path}')"
+        result = con.execute(query)
+    else:
+        ################## using inner join for fast filtering ############
+        con.register("url_filter", pd.DataFrame({"url": list(q_pages)}))
+        query=f"""WITH exploded AS (
+                SELECT
+                    domain,
+                    unnest(embeddings) AS embedding   
+                FROM read_parquet('{f_path}')
+                ),
+                filtered AS (
+                SELECT *
+                FROM exploded e
+                SEMI JOIN  url_filter f
+                    ON e.embedding.page = f.url
+                )
+                SELECT
+                domain, list(embedding) AS embeddings
+                FROM filtered
+                GROUP BY domain"""
+        result = con.execute(query)    
+        ################ search by list of doamins as paramter ###########
+        # "WHERE {filter_by_col} IN ?""
+        # result = con.execute(query, [list(q_domains)])    
+
+    cols_map={name[0]:idx for idx,name in enumerate(result.description)}
+    if schema is None:
+        res=[]
+        while True:
+            rows = result.fetchmany(int(batch_size))
+            if not rows:
+                break
+            for row in rows:
+                res.append([elem for elem in row])
+        res=pd.DataFrame(res,columns=cols_map.keys())
+    else:
+        res={}
+        fetch_counter=1
+        while True:
+            rows = result.fetchmany(int(batch_size))
+            print(f"fetch_counter={(fetch_counter-1)*len(rows)+fetch_counter}")
+            fetch_counter+=1
+            if not rows:
+                break
+            if keep_emb_frist_elem is not None:
+                for row in rows:                
+                    res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]][0][keep_emb_frist_elem] ## first doc emb
+            else:
+                for row in rows:                
+                    res[row[cols_map[schema['key']]]]=row[cols_map[schema['val']]]
+    return res
 
 def search_parquet_duckdb(f_path:str,q_domains:list,filter_by_col:str=None,projection_cols:list[str]=None,max_memory:str="4GB",threads:int =8,batch_size:int =int(1e4),schema:dict={'key':'domain','val':'emb'},keep_emb_frist_elem:int =None):
     con = duckdb.connect()
@@ -462,3 +602,10 @@ def compute_nll(smx: np.ndarray, labels: np.ndarray) -> float:
     return float(-np.log(probs_clipped[np.arange(len(labels)), labels]).mean())
 def reverse_domain_name(domain_name: str):
     return  '.'.join(str(domain_name).split('.')[::-1])
+
+def merge_pyarrow(files,outputpath):
+    schema = pq.ParquetFile(files[0]).schema_arrow
+    with pq.ParquetWriter(outputpath,schema=schema) as writer:
+        for file in tqdm(files):
+            tbl=pq.read_table(file, schema=schema)
+            writer.write_table(tbl)

@@ -195,3 +195,12 @@ cython_debug/
 bash_scripts/spark-warehouse/*
 creditext/content_embbeding/dqr_*.pkl
 creditext/content_embbeding/dqr_propella_annotations_html
+domain_sampler/safe_bertopic/ctfidf.safetensors
+domain_sampler/safe_bertopic/topic_embeddings.safetensors
+creditext/experiments/mlp_experiments/new_safe_bertopic/topic_info.xlsx
+creditext/experiments/mlp_experiments/new_safe_bertopic/topics.json
+creditext/content_embbeding/Roberta_emb_domainrel.log2
+creditext/experiments/mlp_experiments/new_safe_bertopic/ctfidf.safetensors
+creditext/experiments/mlp_experiments/new_safe_bertopic/config.json
+creditext/experiments/mlp_experiments/new_safe_bertopic/ctfidf_config.json
+creditext/experiments/mlp_experiments/new_safe_bertopic/topic_embeddings.safetensors

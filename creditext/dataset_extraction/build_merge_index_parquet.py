@@ -89,17 +89,18 @@ def write_index_file_order(ccmain,labeled_ds=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ccmain content merge")
-    parser.add_argument("--file_type", type=str, choices=['html','wet','warc','sampled_warc','wat','index','index_sampled','infer','topicModeling'], default="topicModeling", help="type of file to merge")
-    parser.add_argument("--ccmain", type=str, default="ccmain202451", help="ccmain")
+    parser.add_argument("--file_type", type=str,default="sampled_warc", choices=['html','wet','warc','sampled_warc','wat','index','index_sampled','infer','topicModeling'], help="type of file to merge")
+    parser.add_argument("--merge_mode", type=str,default="buckets", choices=['all','buckets'], help="How to merge the files, either all or in buckets per folder")
+    parser.add_argument("--ccmain", type=str, default="ccmain202451", help="ccmain" )
     parser.add_argument("--base_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/bash_scripts/spark-warehouse", help="base path")
     # parser.add_argument("--base_path", type=str, default="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/plots", help="base path")
     # parser.add_argument("--org_batch_size", type=int, default=10, help="orginal parquet files batch_size ")    
     parser.add_argument("--org_batch_size", type=int, default=50, help="orginal parquet files batch_size ")    
-    parser.add_argument("--group_size", type=int, default=10000, help="parquet files batch_size per merge, e.g. merge every 300 files into one out file")    
+    parser.add_argument("--group_size", type=int, default=800, help="parquet files batch_size per merge, e.g. merge every 300 files into one out file")    
     parser.add_argument("--group_size_double_factor", type=int, default=90000, help="double the batch size every 10k files into one out file")    
     parser.add_argument("--start_idx", type=int, default=0, help="frist parquet file idx")    
-    parser.add_argument("--end_idx", type=int, default=300, help="end parquet file idx")    
-    # parser.add_argument("--end_idx", type=int, default=90000, help="end parquet file idx")    
+    # parser.add_argument("--end_idx", type=int, default=300, help="end parquet file idx")    
+    parser.add_argument("--end_idx", type=int, default=90000, help="end parquet file idx")    
     args = parser.parse_args()
     print(f"args={args}")
     ############### Merge DQR HTML Parquet Files #############
@@ -126,16 +127,18 @@ if __name__ == "__main__":
     if args.file_type=="index":
         # mid_path=f"warc_index_table_content_table_{args.ccmain}"
         # mid_path=f"warc_index_table_domain_rel_cc_index_table_{args.ccmain}"
-        mid_path=f"warc_index_table_dqr_cc_index_table_{args.ccmain}"
+        # mid_path=f"warc_index_table_dqr_cc_index_table_{args.ccmain}"
+        mid_path=f"warc_index_table_credigrain_cc_index_table_{args.ccmain}"
+        # mid_path=f"warc_index_table_curliedomain_cc_index_table_{args.ccmain}"        
         out_file_name=f"cc_full_index_{mid_path.split("warc_index_table_")[-1]}"
     elif args.file_type=="index_sampled":
         mid_path=f"intermediate_sampled_offsets_{args.ccmain.split("ccmain")[-1]}"
         out_file_name=f"sampled_offsets_index_{args.ccmain}"
     elif args.file_type=="topicModeling":
-        # mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"
-        # out_file_name=f"warc_bysampledoffset_topics_{args.ccmain}" 
-        mid_path=f"CrediBench-WebContent-Dec2024"
-        out_file_name=f"Dec2024_max6_topics"    
+        mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"
+        out_file_name=f"warc_bysampledoffset_topics_{args.ccmain}" 
+        # mid_path=f"CrediBench-WebContent-Dec2024"
+        # out_file_name=f"Dec2024_max6_topics"    
     elif args.file_type=="wet":
         mid_path=f"wet_content_table_{args.ccmain}"
         out_file_name=f"wet_content_table_{args.ccmain}"
@@ -145,9 +148,12 @@ if __name__ == "__main__":
         mid_path=f"warc_domain_rel_warc_byoffset_{args.ccmain}"
         out_file_name=f"warc_domain_rel_warc_byoffset_{args.ccmain}" 
     elif args.file_type=="sampled_warc":
-        mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"
-        out_file_name=f"warc_warc_bysampledoffset_{args.ccmain}" 
-
+        # mid_path=f"warc_warc_bysampledoffset_{args.ccmain}"        
+        # out_file_name=f"warc_warc_bysampledoffset_{args.ccmain}" 
+        # mid_path=f"warc_warc_credigrain_l3s3_{args.ccmain}"
+        # out_file_name=f"warc_warc_credigrain_l3s3_{args.ccmain}" 
+        mid_path=f"warc_warc_curlie_domain_{args.ccmain}"
+        out_file_name=f"warc_warc_curlie_domain_{args.ccmain}"             
     elif args.file_type=="infer":
         mid_path=None
         # out_file_name=f"mlpInfer_dqr_dec_pc1_pytorch_text_embeddinggemma-300m_GAT-text-avg_run0_agg_credibench_MLP_Model"
@@ -168,33 +174,36 @@ if __name__ == "__main__":
             merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}_{start_idx}_{end_idx}.parquet")
         elif args.file_type=="topicModeling":
             file_path_list=list_all_files(f"{base_path}/{mid_path}", "*paraphrase-multilingual-MiniLM-L12-v2_topics_top3.parquet", recursive=True)
+            print(f"len(topics_path_list)={len(file_path_list)}")
             merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}_{start_idx}_{end_idx}.parquet")
         elif args.file_type=="sampled_warc":
             file_path_list=list_all_files(f"{base_path}/{mid_path}", "part-00*.snappy.parquet", recursive=True)
-            file_path_list_dict={}
-            for elem in file_path_list:
-                key=elem.split("/")[-2]
-                if key in file_path_list_dict:
-                    file_path_list_dict[key].append(elem)
-                else:
-                    file_path_list_dict[key]=[elem]
-            domain_buckets_map_dict={}
-            for k,v in file_path_list_dict.items()[0:2]:
-                out_file_path=f"{base_path}/{k}/{k}.parquet"
-                merge_pyarrow(v,out_file_path)
-                file_idx=k.split("_")[-2]
-                domains_lst_df = duckdb.query(f"""SELECT distinct url_host_name as Domain_Name FROM '{out_file_path}'""").df()
-                for domain in domains_lst_df["Domain_Name"].tolist():
-                    if domain in domain_buckets_map_dict:
-                        domain_buckets_map_dict[domain].append(file_idx)
+            if args.merge_mode=="all":
+                merge_pyarrow(file_path_list,f"{base_path}/{out_file_name}_{start_idx}_{end_idx}.parquet")
+            elif args.merge_mode=="buckets":
+                file_path_list_dict={}
+                for elem in file_path_list:
+                    key=elem.split("/")[-2]
+                    if key in file_path_list_dict:
+                        file_path_list_dict[key].append(elem)
                     else:
-                        domain_buckets_map_dict[domain]=[file_idx]         
-
-                # for f in v:
-                #     if os.path.exists(f):
-                #         os.remove(f)
-            domain_buckets_map_df=pd.DataFrame(list(domain_buckets_map_dict.items()), columns=['Domain_Name', 'Buckets'])
-            domain_buckets_map_df.to_parquet(f'{args.base_path}/{mid_path}_domain_buckets_map.parquet', engine='pyarrow', compression='snappy')
+                        file_path_list_dict[key]=[elem]
+                domain_buckets_map_dict={}
+                for k,v in file_path_list_dict.items():
+                    out_file_path=f"{base_path}/{mid_path}/{k}/{k}.parquet"
+                    merge_pyarrow(v,out_file_path)
+                    file_idx=k.split("_")[-2]
+                    domains_lst_df = duckdb.query(f"""SELECT distinct Domain_Name FROM '{out_file_path}'""").df()
+                    for domain in domains_lst_df["Domain_Name"].tolist():
+                        if domain in domain_buckets_map_dict:
+                            domain_buckets_map_dict[domain].append(file_idx)
+                        else:
+                            domain_buckets_map_dict[domain]=[file_idx]   
+                    for f in v:
+                        if os.path.exists(f):
+                            os.remove(f)
+                domain_buckets_map_df=pd.DataFrame(list(domain_buckets_map_dict.items()), columns=['Domain_Name', 'Buckets'])
+                domain_buckets_map_df.to_parquet(f'{args.base_path}/{mid_path}_domain_buckets_map.parquet', engine='pyarrow', compression='snappy')
 
 
         elif args.file_type=="infer":
@@ -208,4 +217,3 @@ if __name__ == "__main__":
         cc_index_df=None
         collected = gc.collect()
         print(f"Garbage collector collected {collected} objects.")
-

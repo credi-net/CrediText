@@ -23,8 +23,8 @@ from bertopic.representation import KeyBERTInspired
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 from huggingface_hub import snapshot_download
-
 from sklearn.metrics.pairwise import cosine_similarity
+import ast
 tqdm.pandas()
 
 
@@ -37,8 +37,8 @@ class DomainSampler():
     for lang in stopwords.fileids():
         global_stop_words_set.update(stopwords.words(lang))
 
-    def __init__(self, bert_model_path:str = "safe_bertopic", confidence:float = 0.95, margin_error:float = 0.05,
-                  embedding_model = None, embeddings:list[float] = []):
+    def __init__(self, bert_model_path:str = "new_safe_bertopic", confidence:float = 0.95, margin_error:float = 0.05,
+                  embedding_model = None, embeddings:list[float] = [],embed_KeyBERT:bool = False):
         ''' Initializes the DomainSampler with population size, confidence level, margin of error, embedding model, and precomputed embeddings.
         :param bert_model_path: Path to the BERTopic model (optional)
         :param confidence: Confidence level (e.g., 0.95 for 95%) (optional)
@@ -54,15 +54,49 @@ class DomainSampler():
             self.embeddings = np.array(embeddings)
         # downloading the embedding model
         self.embedding_model = embedding_model
-
         try:
-            self.topic_model = BERTopic.load(self.bert_model_path, embedding_model = self.embedding_model)
-            self.topic_representations = self.topic_model.get_topic_info() #shows the representative words per topic
-            self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic            
+            if bert_model_path.endswith("new_safe_bertopic"):
+                if not self.embedding_model:
+                    if torch.cuda.is_available():
+                        self.embedding_model = SentenceTransformer("google/embeddinggemma-300m",
+                                                        device="cuda:0") #the old used paraphrase-multilingual-MiniLM-L12-v2
+                    else:
+                        self.embedding_model = SentenceTransformer("google/embeddinggemma-300m")
+                    #loading the topic modeler
+                snapshot_download("Sulum82/BigBERTopic", local_dir=bert_model_path, local_dir_use_symlinks=False)  
+                ######## file should be pickle or parquet not xlsx ############
+                def parse_np_str(s):
+                    return np.array([float(x) for x in re.findall(r'-?\d+\.?\d*(?:e[-+]?\d+)?', s)])
+                self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+                # self.topic_info = pd.read_excel(f"{self.bert_model_path}/topic_info.xlsx")
+                self.topic_info = pd.read_csv(f"{self.bert_model_path}/topic_info.csv")
+                self.topic_info["KeyBERT"] = self.topic_info["KeyBERT"].apply(ast.literal_eval)
+                if embed_KeyBERT:
+                    self.topic_embeddings=[]
+                    for keywords in tqdm(self.topic_info["KeyBERT"].tolist()):
+                        elem_embeddings = self.embedding_model.encode(keywords)
+                        centroid = elem_embeddings.mean(axis=0)
+                        centroid = centroid / np.linalg.norm(centroid)
+                        self.topic_embeddings.append(centroid)
+                else:
+                    self.topic_embeddings = [parse_np_str(s) for s in self.topic_info['embedding'].tolist()]
+            else:           
+                if not self.embedding_model:
+                    if torch.cuda.is_available():
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2",
+                                                    device="cuda:0") 
+                    else:
+                        self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+                #loading the topic modeler                
+                print(f"can't get the latest model, Loading BERTopic model from path: {bert_model_path}...")
+                self.topic_model = BERTopic.load(bert_model_path, embedding_model = self.embedding_model)
+                self.topic_info = self.topic_model.get_topic_info() #shows the representative words per topic
+                self.topic_embeddings = self.topic_model.topic_embeddings_  #embeddings ordered by the number of topic
+            self.topic_representations = self.topic_info
         except:
-            raise ValueError(f"BERTopic model could not be loaded from the path: {self.bert_model_path}. Please check the path and try again.")
+            raise ValueError(f"BERTopic model could not be loaded from the path: {bert_model_path}. Please check the path and try again.")
     @staticmethod
-    def get_min_sample_size(pop_size: int, confidence: float, margin_error: float)->int:
+    def get_min_sample_size(pop_size: int, confidence:float = 0.95, margin_error:float = 0.05)->int:
         """
         Calculates minimum sample size for a finite population.
 
@@ -166,7 +200,7 @@ class DomainSampler():
                         "text":self.clean_text(soup.get_text(separator=" ", strip=True))})
         return articles_text
     
-    def topic_analysis(self, urls:list[str], articles:list,embedings:list=None,deep_analysis:bool=False,is_html=True)-> list[pd.DataFrame]:
+    def topic_analysis(self, urls:list[str], articles:list,embedings:list=None,deep_analysis:bool=False,is_html=True,top_k:int=3)-> list[pd.DataFrame]:
         """
         Preprocesses the HTML content of articles from a domain and returns topic with their relative urls ordered by 
         the number of words of their corresponding article content.
@@ -187,22 +221,21 @@ class DomainSampler():
         art_lens = [len(art.split()) for art in cleaned_articles]
 
         if deep_analysis:
-            topic_distr, _ = self.topic_model.approximate_distribution(cleaned_articles,
-                                                        window=4, stride=1, use_embedding_model=True)
-            top_3_topics, top_3_probabs = [], []
+            topic_distr, _ = self.topic_model.approximate_distribution(cleaned_articles,window=4, stride=1, use_embedding_model=True)
+            top_k_topics, top_k_probabs = [], []
             for i, doc_distribution in enumerate(topic_distr):
-                top_3_indices = np.argsort(doc_distribution)[::-1][:3]
-                output_probabilities = [float(doc_distribution[topic_id]) for topic_id in top_3_indices]
-                top_3_topics.append(top_3_indices.tolist())
-                top_3_probabs.append(output_probabilities)
-            topics = [topics[0] for topics in top_3_topics]
-            probs = [probs[0] for probs in top_3_probabs]
+                top_k_indices = np.argsort(doc_distribution)[::-1][:top_k]
+                output_probabilities = [float(doc_distribution[topic_id]) for topic_id in top_k_indices]
+                top_k_topics.append(top_k_indices.tolist())
+                top_k_probabs.append(output_probabilities)
+            topics = [topics[0] for topics in top_k_topics]
+            probs = [probs[0] for probs in top_k_probabs]
             analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs,
-                                            'top_3_topics': top_3_topics, 'top_3_probabs': top_3_probabs})
+                                            'top_k_topics': top_k_topics, 'top_k_probabs': top_k_probabs})
         else:
             if embedings:
                 # self.embeddings = np.array(embedings)
-                self.embeddings = np.array([elem[0:384] for elem in  embedings])
+                self.embeddings = np.array([elem for elem in  embedings])
             topics, probs = self.topic_model.transform(cleaned_articles, embeddings = self.embeddings)
             analysis_df = pd.DataFrame({'url':urls, 'article_word_num':art_lens, 'topic' : topics, 'prob': probs})
         # 1. Sort the dataframe by the number of words in ascending order
@@ -223,25 +256,21 @@ class DomainSampler():
         """
         # 1. Compute dot product between matrix and vector -> shape (10,)
         dot_product = np.dot(self.topic_embeddings, input_embeddings)
-
         # 2. Compute L2 norm (magnitude) of the single vector -> scalar
         norm_vector = np.linalg.norm(input_embeddings)
-
         # 3. Compute L2 norm of each row in the matrix -> shape (10,)
         norm_matrix = np.linalg.norm(input_embeddings, axis=1)
-
         # 4. Divide dot product by the product of the norms
         cosine_sim = dot_product / (norm_vector * norm_matrix)
-
         return cosine_sim
+
     def topic_analysis_cosin_sim(self,emb_lst:list,topk=3):
         # Get topic info
         if len(emb_lst)>0:
-            topic_info = self.topic_model.get_topic_info()
+            topic_info =self.topic_info
+            topic_embeddings =self.topic_embeddings
             topic_names = dict(zip(topic_info['Topic'], topic_info['Name']))
-            embeddings = np.array([elem[0:384] for elem in  emb_lst])
-            # Get all topic probabilities using cosine similarity
-            topic_embeddings = self.topic_model.topic_embeddings_
+            embeddings = np.array([elem[0:len(elem)] for elem in  emb_lst])            
             similarities = cosine_similarity(embeddings, topic_embeddings)
             exp_similarities = np.exp(similarities)
             all_topic_probs = exp_similarities / exp_similarities.sum(axis=1, keepdims=True)
@@ -267,3 +296,37 @@ class DomainSampler():
             df = pd.DataFrame(results,columns=titles)
             return df
         return None
+    def category_topic_cosin_sim(self,emb_lst:list,categories_lst:list,topk=3):
+            # Get topic info
+            if len(emb_lst)>0:
+                topic_info =self.topic_info
+                topic_embeddings =self.topic_embeddings
+                topic_names = dict(zip(topic_info['Topic'], topic_info['Name']))
+                embeddings = np.array([elem[0:len(elem)] for elem in  emb_lst])
+                # Get all topic probabilities using cosine similarity
+                
+                similarities = cosine_similarity(topic_embeddings,embeddings)
+                exp_similarities = np.exp(similarities)
+                all_categ_probs = exp_similarities / exp_similarities.sum(axis=1, keepdims=True)
+    
+                # print(f"Full distribution shape: {all_topic_probs.shape}")
+                # print(f"All probabilities:\n{all_topic_probs}")
+                # Get top 3 topics per document
+                results = []
+                topic_keys_lst=list(topic_names.keys())
+                for doc_idx, doc_probs in enumerate(all_categ_probs):
+                    top_k_indices = np.argsort(doc_probs)[-topk:][::-1] 
+                    top_k_probs= np.sort(doc_probs)[-topk:][::-1]
+                    topic_key_id=topic_keys_lst[doc_idx]
+                    topic_categories=[topic_key_id,topic_names[topic_key_id]]
+                    # doc_topics.append (doc_idx)            
+                    for rank, cat_id in enumerate(top_k_indices, 1):
+                        prob = doc_probs[cat_id]                              
+                        topic_categories.extend([cat_id,categories_lst[cat_id],top_k_probs[rank-1]])
+                    results.append(topic_categories)                   
+                titles=["topic_id","topic_name"]          
+                for i in range(0,topk):
+                    titles.extend([f"category{i}_id",f"category{i}_name",f"category{i}_prop"]) 
+                df = pd.DataFrame(results,columns=titles)
+                return df
+            return None

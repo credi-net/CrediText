@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=10:00:00
+#SBATCH --time=72:00:00
 #SBATCH --output=/home/mila/a/abdallah/scratch/jobs_log/cc-html-ext/cc-warc_bySampledoffset_job_%j.out
 #SBATCH --error=/home/mila/a/abdallah/scratch/jobs_log/cc-html-ext/cc-warc_bySampledoffset_job_%j.err
 
@@ -56,9 +56,14 @@ set -e
 # batch_size=50
 for ((i=$sidx; i<$eidx; i+=$batch_size)); do
     echo "#########################################################################################"
-    ./end-to-end.sh CC-Crawls/Dec2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/intermediate_sampled_offsets_202451/sampled_offsets_index_$CRAWL.parquet warc_bySampledOffset spark-warehouse/intermediate_sampled_offsets_202451/warc_sampled_offsets_order_202451.txt byoffset
-    # rm -r  ~/scratch/crawl-data/CC-MAIN-2025-08/segments
-    #  rm -r ../data/crawl-data/CC-MAIN-2024-42/segments
+#     ./end-to-end.sh CC-Crawls/Dec2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/intermediate_sampled_offsets_202451/sampled_offsets_index_$CRAWL.parquet warc_bySampledOffset spark-warehouse/intermediate_sampled_offsets_202451/warc_sampled_offsets_order_202451.txt byoffset
+#     ./end-to-end.sh CC-Crawls/Nov2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/intermediate_sampled_offsets_202446/sampled_offsets_index_$CRAWL.parquet warc_bySampledOffset spark-warehouse/intermediate_sampled_offsets_202446/warc_sampled_offsets_order_202446.txt byoffset
+      # CrediGrain Dec2024
+      # ./end-to-end.sh CC-Crawls/Dec2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/cc_full_index_credigrain_cc_index_table_ccmain202451_0_299.parquet warc_credigrain spark-warehouse/intermediate_sampled_offsets_202451/warc_sampled_offsets_order_202451.txt byoffset
+      # ./end-to-end.sh CC-Crawls/Dec2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/cc_full_index_credigrain_cc_index_table_ccmain202451_L3S3.parquet warc_credigrain_L3S3 spark-warehouse/intermediate_sampled_offsets_202451/warc_sampled_offsets_order_202451.txt byoffset
+      # ./end-to-end.sh CC-Crawls/Nov2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/cc_full_index_credigrain_cc_index_table_ccmain202446_0_299.parquet warc_credigrain spark-warehouse/intermediate_sampled_offsets_202446/warc_sampled_offsets_order_202446.txt byoffset
+      # CurliDomain Dec2024
+      ./end-to-end.sh CC-Crawls/Dec2024.txt $i $((i+$batch_size-1)) [warc] ../bash_scripts/spark-warehouse/cc_full_index_curliedomain_cc_index_table_ccmain202451_0_299.parquet warc_curlie_domain spark-warehouse/intermediate_sampled_offsets_202451/warc_sampled_offsets_order_202451.txt byoffset
     # rm -r ../data/crawl-data/CC-MAIN-2024-46/segments
     # rm -r ../data/crawl-data/CC-MAIN-2024-51/segments
     # rm -r /shared_mnt/tmp/*

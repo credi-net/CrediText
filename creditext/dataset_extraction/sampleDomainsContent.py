@@ -14,8 +14,9 @@ logging.basicConfig(level=logging.INFO)
 import gc
 
 global_path="/home/mila/a/abdallah/scratch/hsh_projects/CrediText/bash_scripts/spark-warehouse"
-def generate_domain_doc_count():
-    for month in ['202451','202446','202442']:
+def generate_domain_doc_count(month_lst=['202451','202446','202442']):
+    # for month in :
+    for month in month_lst:
         logging.info(f"Processing month {month}...")
         month_dir=f"{global_path}/warc_index_table_content_table_ccmain{month}"
         parquet_files_lst=list_all_files(month_dir, "*.parquet", recursive=True)
@@ -40,9 +41,8 @@ def plot_sample_frequency(vc,output="dec2024_sampled_docs_frequance.pdf", y_log_
     plt.tight_layout()
     plt.savefig(output, format="pdf", bbox_inches="tight")
     plt.show()
-def generate_domain_doc_samples_count():    
-    # for month in ['202451','202446','202442']:
-    for month in ['202446','202442']:
+def generate_domain_doc_samples_count(month_lst=['202451','202446','202442']):    
+    for month in month_lst:
         logging.info(f"Processing month {month}...")  
         f_path=f"{global_path}/domain_docs_count_{month}.parquet"
         domain_doc_count_df=query_parquet_duckdb(SQL_Query=f"SELECT url_host_name,doc_count FROM read_parquet('{f_path}')")
@@ -57,9 +57,7 @@ def generate_domain_doc_samples_count():
         plot_sample_frequency(vc, output=f"{global_path}/sampled_docs_frequency_{month}.pdf")
         domains_sample_size_df.to_parquet(f"{global_path}/domain_docs_sample_size_{month}.parquet", compression='gzip')
         logging.info(domains_sample_size_df)
-
-def generate_sampled_domains_doc_warc_offset():    
-    # for month in ['202451','202446','202442']:
+def generate_sampled_domains_doc_warc_offset(month_lst=['202451','202446','202442']):    
     domain_sample_count_dict={} ## dict to keep track of remaining sample size for each domain
     month_offset_lst=[]
     def process_row(row):
@@ -67,7 +65,7 @@ def generate_sampled_domains_doc_warc_offset():
                 month_offset_lst.append([row.url_host_name, row.warc_filename, row.warc_record_offset, row.content_languages, row.warc_record_length])
                 domain_sample_count_dict[row.url_host_name]-=1
     # for month in ['202446','202442']:
-    for month in ['202451']:
+    for month in month_lst:
         logging.info(f"Processing month {month}...")
         f_path=f"{global_path}/domain_docs_sample_size_{month}.parquet"
         domain_sample_count_df=query_parquet_duckdb(SQL_Query=f"SELECT url_host_name,sample_size FROM read_parquet('{f_path}')")
@@ -95,29 +93,27 @@ def generate_sampled_domains_doc_warc_offset():
             domain_sample_count_dict={k:v for k,v in domain_sample_count_dict.items() if v>0} ## remove domains that already have their sample size fulfilled
             logging.info(f"Remaining domains to sample: {len(domain_sample_count_dict)}")
             if (idx+1) % 10 == 0: ## save intermediate results every 20 files
-                 intermediate_offset_df=pd.DataFrame(month_offset_lst , columns=['url_host_name', 'warc_filename', 'warc_record_offset', 'content_languages', 'warc_record_length'])
-                 month_offset_lst=[] ## reset the list to save memory
-                 gc.collect()
-                 intermediate_offset_df=intermediate_offset_df.sort_values(by=['warc_filename'])
-                 intermediate_offset_df.to_parquet(f"{global_path}/intermediate_sampled_offsets_{month}_{idx+1}.parquet", compression='gzip')
-                 del intermediate_offset_df
-                 gc.collect()
-                 logging.info(f"Saved intermediate results after processing {idx+1} files.")
-                 
-                 pd.DataFrame(list(domain_sample_count_dict.items()), columns=['url_host_name', 'sample_size']).to_parquet(f"{global_path}/remaining_sample_size_{month}.parquet", compression='gzip')
+                intermediate_offset_df=pd.DataFrame(month_offset_lst , columns=['url_host_name', 'warc_filename', 'warc_record_offset', 'content_languages', 'warc_record_length'])
+                month_offset_lst=[] ## reset the list to save memory
+                gc.collect()
+                intermediate_offset_df=intermediate_offset_df.sort_values(by=['warc_filename'])
+                intermediate_offset_df.to_parquet(f"{global_path}/intermediate_sampled_offsets_{month}_{idx+1}.parquet", compression='gzip')
+                del intermediate_offset_df
+                gc.collect()
+                logging.info(f"Saved intermediate results after processing {idx+1} files.")                 
+                pd.DataFrame(list(domain_sample_count_dict.items()), columns=['url_host_name', 'sample_size']).to_parquet(f"{global_path}/remaining_sample_size_{month}.parquet", compression='gzip')
 
         month_offset_df=pd.DataFrame(month_offset_lst , columns=['url_host_name', 'warc_filename', 'warc_record_offset', 'content_languages', 'warc_record_length'])
         month_offset_df=month_offset_df.sort_values(by=['warc_filename'])
         month_offset_df.to_parquet(f"{global_path}/intermediate_sampled_offsets_{month}_{idx+1}.parquet", compression='gzip')
         logging.info(month_offset_df)
-
 def explore_sampled_offsets(month='202451'):
     f_path=f"{global_path}/month_sampled_offsets_{month}.parquet"
     month_offset_df=query_parquet_duckdb(SQL_Query=f"SELECT url_host_name,warc_filename, warc_record_offset FROM read_parquet('{f_path}')")
     logging.info(month_offset_df)
-
 if __name__ == "__main__":
-    # generate_domain_doc_count()
-    # generate_domain_doc_samples_count()
-    generate_sampled_domains_doc_warc_offset()
+    month_lst=['202451']
+    # generate_domain_doc_count(month_lst)
+    # generate_domain_doc_samples_count(month_lst)
+    # generate_sampled_domains_doc_warc_offset(month_lst)
     # explore_sampled_offsets()
