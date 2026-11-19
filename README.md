@@ -117,6 +117,19 @@ ______________________________________________________________________
 cd CrediText/creditext/dataset_extraction/
 bash sbatch_topic_modeling_jobs.sh <start_idx> <end_idx>  <task>
 ```
+
+
+## Common Crawl Content Processing Pipeline (Spark)
+
+| # | Step | Script | Args | Input | Output | Description |
+|---|------|--------|------|-------|--------|-------------|
+| 1 | Generate full index | `job_index_build_sbatch.sh` | – | `ccmain_month` | `warc_index_table_content_table_ccmain202442` | Builds the full CC index table (URL → WARC file, offset, length) for the monthly crawl. |
+| 2 | Generate domain doc counts | `sampleDomainsContent.py` | `generate_domain_doc_count` | Full index folder (S1) | `domain_docs_count_{month}.parquet` | Counts the documents per domain in the full index. |
+| 3 | Compute per-domain sample sizes | `sampleDomainsContent.py` | `generate_domain_doc_samples_count` | Domain counts (S2) | `domain_docs_sample_size_{month}.parquet` | Works out how many documents to sample from each domain. |
+| 4 | Sample WARC offsets | `sampleDomainsContent.py` | `generate_sampled_domains_doc_warc_offset` | Sample sizes (S3) | `intermediate_sampled_offsets_{month}_{idx}.parquet` | Picks the sampled documents and writes their WARC offsets in partitioned chunks. |
+| 5 | Merge intermediate offsets | `build_merge_index_parquet.py` | `index_sampled` | Offsets (S4) | `intermediate_sampled_offsets_{month}.parquet` | Merges the partitioned offset files into one parquet. |
+| 6 | Write WARC file order | `sampleDomainsContent.py` | `write_index_file_order` | Full index (S1) | `ccmain202442_warc_FilesOrder.txt` | Writes the ordered list of WARC files, used to split extraction jobs into ranges. |
+| 7 | Extract sampled content | `job_extract_warc_bySampledOffset_sbatch.sh` | – | S5, S6 | `warc_warc_bysampledoffset_ccmain202442_{start}_{end}` | Reads the content at the sampled offsets, one batch of WARC files per `[start, end]` range. |
 __________________________________________________________________
 
 ### Running MLP Experiments
